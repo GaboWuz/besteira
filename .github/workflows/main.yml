@@ -58,62 +58,6 @@ jobs:
           haxelib install hmm --quiet
           haxelib run hmm install
 
-<<<<<<< HEAD
-=======
-      - name: Enable Java 8 in Lime Android template
-        shell: bash
-        run: |
-          LIME_PATH="$(haxelib libpath lime | head -n 1 | tr -d '\r')"
-          GRADLE_FILE="${LIME_PATH%/}/templates/android/template/app/build.gradle"
-
-          echo "Lime root: $LIME_PATH"
-          echo "Gradle template: $GRADLE_FILE"
-
-          if [ ! -f "$GRADLE_FILE" ]; then
-            echo "ERRO: Template da Lime não encontrado."
-            find "$LIME_PATH" -maxdepth 5 -name "build.gradle" -print
-            exit 1
-          fi
-
-          python3 - "$GRADLE_FILE" <<'PY'
-          import sys
-          from pathlib import Path
-
-          gradle_file = Path(sys.argv[1])
-          text = gradle_file.read_text(encoding="utf-8")
-
-          java8_block = """\
-          \tcompileOptions {
-          \t\tsourceCompatibility JavaVersion.VERSION_1_8
-          \t\ttargetCompatibility JavaVersion.VERSION_1_8
-          \t}
-
-          """
-
-          if "sourceCompatibility JavaVersion.VERSION_1_8" not in text:
-              marker = "android {\n"
-
-              if marker not in text:
-                  raise RuntimeError(
-                      "Bloco 'android {' não encontrado no build.gradle"
-                  )
-
-              text = text.replace(
-                  marker,
-                  marker + java8_block,
-                  1
-              )
-
-              gradle_file.write_text(text, encoding="utf-8")
-              print("Java 8 adicionado com sucesso.")
-          else:
-              print("Java 8 já estava configurado.")
-          PY
-
-          echo "Configuração encontrada:"
-          grep -n -A4 -B2 "compileOptions" "$GRADLE_FILE"
-        
->>>>>>> 47bd24df53b7526e45aa18d29d501c899872877b
       - name: Configure Android
         run: |
           haxelib run lime setup -alias -y
@@ -125,12 +69,11 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 
     - name: Android Java preflight
-     shell: bash
+      shell: bash
      run: |
-       haxelib run lime update android -final
+        haxelib run lime update android -final
     
-       cd export/release/android/bin
-    
+      cd export/release/android/bin
        chmod +x gradlew
     
        ./gradlew :app:compileDebugJavaWithJavac \
