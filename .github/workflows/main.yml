@@ -58,6 +58,52 @@ jobs:
           haxelib install hmm --quiet
           haxelib run hmm install
 
+      - name: Enable Java 8 in Lime Android template
+        shell: bash
+        run: |
+          LIME_PATH="$(haxelib path lime | head -n 1)"
+          GRADLE_FILE="$LIME_PATH/templates/android/template/app/build.gradle"
+
+          echo "Lime path: $LIME_PATH"
+          echo "Gradle template: $GRADLE_FILE"
+
+          python3 - "$GRADLE_FILE" <<'PY'
+          import sys
+          from pathlib import Path
+
+          gradle_file = Path(sys.argv[1])
+
+          if not gradle_file.exists():
+              raise FileNotFoundError(
+                  f"Template Gradle da Lime não encontrado: {gradle_file}"
+              )
+
+          text = gradle_file.read_text(encoding="utf-8")
+
+          java8_block = """\
+          \tcompileOptions {
+          \t\tsourceCompatibility JavaVersion.VERSION_1_8
+          \t\ttargetCompatibility JavaVersion.VERSION_1_8
+          \t}
+
+          """
+
+          if "sourceCompatibility JavaVersion.VERSION_1_8" not in text:
+              text = text.replace(
+                  "android {\n",
+                  "android {\n" + java8_block,
+                  1
+              )
+
+              gradle_file.write_text(text, encoding="utf-8")
+              print("Java 8 adicionado ao template Android da Lime.")
+          else:
+              print("Java 8 já estava configurado.")
+          PY
+
+          echo "Resultado:"
+          grep -n -A4 -B2 "compileOptions" "$GRADLE_FILE"
+
       - name: Configure Android
         run: |
           haxelib run lime setup -alias -y
