@@ -73,10 +73,10 @@ jobs:
      run: |
         haxelib run lime update android -final
     
-      cd export/release/android/bin
-       chmod +x gradlew
+        cd export/release/android/bin
+        chmod +x gradlew
     
-       ./gradlew :app:compileDebugJavaWithJavac \
+        ./gradlew :app:compileDebugJavaWithJavac \
          --stacktrace \
          --warning-mode all
 
