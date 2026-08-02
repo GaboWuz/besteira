@@ -57,8 +57,9 @@
     },
     {
       "name": "android-manager",
-      "type": "haxelib",
-      "version": "1.0.1"
+      "type": "git",
+      "ref": "main",
+      "url": "https://github.com/GaboWuz/android-manager-quemsoueu"
     }
   ]
 }
