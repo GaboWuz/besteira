@@ -27,6 +27,12 @@ class Note extends FlxSprite
 	public var sustainLength:Float = 0;
 	public var isSustainNote:Bool = false;
 
+	// Tipos básicos compatíveis com charts da Psych Engine.
+	public var noteType:String = '';
+	public var animSuffix:String = '';
+	public var noAnimation:Bool = false;
+	public var gfNote:Bool = false;
+
 	public var noteScore:Float = 1;
 
 	public static var swagWidth:Float = 160 * 0.7;
@@ -191,6 +197,84 @@ class Note extends FlxSprite
 				prevNote.updateHitbox();
 				// prevNote.setGraphicSize();
 			}
+		}
+	}
+
+
+	public function setNoteType(value:Dynamic):Void
+	{
+		noteType = normalizeNoteType(value);
+		animSuffix = '';
+		noAnimation = false;
+
+		switch (noteType)
+		{
+			case 'Alt Animation':
+				animSuffix = '-alt';
+
+			case 'GF Sing':
+				gfNote = true;
+
+			case 'No Animation':
+				noAnimation = true;
+		}
+	}
+
+	public function copyNoteType(source:Note):Void
+	{
+		if (source == null)
+			return;
+
+		noteType = source.noteType;
+		animSuffix = source.animSuffix;
+		noAnimation = source.noAnimation;
+		gfNote = source.gfNote;
+	}
+
+	static function normalizeNoteType(value:Dynamic):String
+	{
+		if (value == null)
+			return '';
+
+		if (Std.isOfType(value, Int) || Std.isOfType(value, Float))
+		{
+			switch (Std.int(value))
+			{
+				case 1:
+					return 'Alt Animation';
+				case 2:
+					return 'Hey!';
+				case 3:
+					// Hurt Note é propositalmente ignorada nesta base.
+					return 'Hurt Note';
+				case 4:
+					return 'GF Sing';
+				case 5:
+					return 'No Animation';
+				default:
+					return '';
+			}
+		}
+
+		var raw:String = Std.string(value).trim();
+		var lowered:String = raw.toLowerCase();
+
+		switch (lowered)
+		{
+			case '' | 'normal' | 'default':
+				return '';
+			case 'alt' | 'alt animation' | 'alt-animation':
+				return 'Alt Animation';
+			case 'hey' | 'hey!':
+				return 'Hey!';
+			case 'gf' | 'gf sing' | 'girlfriend sing':
+				return 'GF Sing';
+			case 'no anim' | 'no animation' | 'no-animation':
+				return 'No Animation';
+			case 'hurt' | 'hurt note':
+				return 'Hurt Note';
+			default:
+				return raw;
 		}
 	}
 

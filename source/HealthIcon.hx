@@ -12,15 +12,32 @@ class HealthIcon extends FlxSprite
 	/** Usado pelo FreeplayState. */
 	public var sprTracker:FlxSprite;
 	public var loadedFromMods(default, null):Bool = false;
+	public var currentCharacter(default, null):String = '';
+	public var isPlayerIcon(default, null):Bool = false;
 
 	public function new(char:String = 'bf', isPlayer:Bool = false)
 	{
 		super();
-
-		if (!loadModIcon(char, isPlayer))
-			loadIconGrid(char, isPlayer);
-
+		changeIcon(char, isPlayer);
 		scrollFactor.set();
+	}
+
+	public function changeIcon(char:String, ?isPlayer:Null<Bool>):Void
+	{
+		if (char == null || char.length == 0)
+			char = 'face';
+
+		if (isPlayer != null)
+			isPlayerIcon = isPlayer;
+
+		currentCharacter = char;
+		loadedFromMods = false;
+
+		if (animation != null)
+			animation.destroyAnimations();
+
+		if (!loadModIcon(char, isPlayerIcon))
+			loadIconGrid(char, isPlayerIcon);
 	}
 
 	/**

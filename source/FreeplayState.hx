@@ -42,17 +42,31 @@ class FreeplayState extends MusicBeatState
 	{
 		AndroidStorage.init();
 
-		// A lista interna sempre é carregada. A lista externa é apenas um extra;
-		// portanto uma falha no storage nunca deixa o Freeplay vazio.
-		var initSonglist:Array<String> = CoolUtil.coolTextFile(Paths.txt('freeplaySonglist'));
+		// Se a lista externa existir, ela substitui completamente a lista interna.
+		// Se não existir, o jogo usa somente assets/data/freeplaySonglist.txt.
 		var externalText:String = AndroidStorage.readText('data/freeplaySonglist.txt', null);
-		if (externalText != null && externalText.trim().length > 0)
-			initSonglist = initSonglist.concat(externalText.split('\n'));
+
+		// Alias opcional para quem já criou o arquivo com o nome abreviado.
+		if (externalText == null)
+			externalText = AndroidStorage.readText('data/freeplayList.txt', null);
+
+		var initSonglist:Array<String>;
+
+		if (externalText != null)
+		{
+			trace('[Freeplay] Usando somente a lista do mods folder.');
+			initSonglist = externalText.split('\n');
+		}
+		else
+		{
+			trace('[Freeplay] Lista externa ausente; usando somente a lista interna.');
+			initSonglist = CoolUtil.coolTextFile(Paths.vanillaTxt('freeplaySonglist'));
+		}
 
 		for (lineRaw in initSonglist)
 		{
 			var line:String = StringTools.trim(lineRaw);
-			if (line.length == 0 || line.startsWith('#'))
+			if (line.length == 0 || line.startsWith('#') || line.startsWith('//'))
 				continue;
 
 			var data:Array<String> = line.split(':');
@@ -62,18 +76,35 @@ class FreeplayState extends MusicBeatState
 				continue;
 			}
 
+			var songName:String = StringTools.trim(data[0]);
+			var iconName:String = StringTools.trim(data[1]);
 			var parsedWeek:Null<Int> = Std.parseInt(StringTools.trim(data[2]));
 			var week:Int = parsedWeek == null ? 0 : parsedWeek;
 
-			songs.push(new SongMetadata(
-				StringTools.trim(data[0]),
-				week,
-				StringTools.trim(data[1])
-			));
+			if (songName.length == 0)
+				continue;
+			if (iconName.length == 0)
+				iconName = 'dad';
+
+			var duplicate:Bool = false;
+			for (song in songs)
+			{
+				if (Paths.formatToSongPath(song.songName) == Paths.formatToSongPath(songName))
+				{
+					duplicate = true;
+					break;
+				}
+			}
+
+			if (!duplicate)
+				songs.push(new SongMetadata(songName, week, iconName));
 		}
 
 		if (songs.length == 0)
+		{
+			trace('[Freeplay] A lista escolhida está vazia; usando Tutorial como fallback.');
 			songs.push(new SongMetadata('Tutorial', 0, 'gf'));
+		}
 
 		/* 
 			if (FlxG.sound.music != null)

@@ -108,8 +108,10 @@ class CharacterData
 		var position:Array<Float> = readFloatArray(data, 'position', [0, 0]);
 		if (position.length >= 2)
 		{
-			character.x += position[0];
-			character.y += position[1];
+			character.positionOffsetX = position[0];
+			character.positionOffsetY = position[1];
+			character.x += character.positionOffsetX;
+			character.y += character.positionOffsetY;
 		}
 
 		character.isJsonCharacter = true;

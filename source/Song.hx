@@ -9,14 +9,15 @@ typedef SwagSong =
 {
 	var song:String;
 	var notes:Array<SwagSection>;
+	@:optional var events:Array<Dynamic>;
 	var bpm:Float;
 	var needsVoices:Bool;
 	var speed:Float;
 	var player1:String;
 	var player2:String;
-	var gfVersion:String;
-	var noteStyle:String;
-	var stage:String;
+	@:optional var gfVersion:String;
+	@:optional var noteStyle:String;
+	@:optional var stage:String;
 	var validScore:Bool;
 }
 
@@ -24,6 +25,7 @@ class Song
 {
 	public var song:String;
 	public var notes:Array<SwagSection>;
+	public var events:Array<Dynamic> = [];
 	public var bpm:Float;
 	public var needsVoices:Bool = true;
 	public var speed:Float = 1;
@@ -48,15 +50,16 @@ class Song
 		if (folder == null || folder.trim().length == 0)
 			folder = jsonInput;
 
-		var folderName = Paths.formatToSongPath(folder);
-		var chartName = jsonInput.toLowerCase();
-		var chartPath = Paths.json(folderName + '/' + chartName);
-		var rawJson = Paths.getText(chartPath);
+		var folderName:String = Paths.formatToSongPath(folder);
+		var chartName:String = Paths.formatToSongPath(jsonInput);
+		var chartPath:String = Paths.json(folderName + '/' + chartName);
+		var rawJson:Null<String> = Paths.getText(chartPath);
 
 		if (rawJson == null)
 			throw '[Song] Chart não encontrado: ' + chartPath;
 
 		rawJson = rawJson.trim();
+
 		while (rawJson.length > 0 && !rawJson.endsWith('}'))
 			rawJson = rawJson.substr(0, rawJson.length - 1);
 
@@ -76,10 +79,19 @@ class Song
 	public static function parseJSONshit(rawJson:String):SwagSong
 	{
 		var parsed:Dynamic = Json.parse(rawJson);
-		if (parsed == null || parsed.song == null)
+
+		if (parsed == null || Reflect.field(parsed, 'song') == null)
 			throw 'O JSON precisa possuir o objeto "song".';
 
-		var songData:SwagSong = cast parsed.song;
+		var dynamicSong:Dynamic = Reflect.field(parsed, 'song');
+
+		if (Reflect.field(dynamicSong, 'events') == null)
+			Reflect.setField(dynamicSong, 'events', []);
+
+		if (Reflect.field(dynamicSong, 'notes') == null)
+			Reflect.setField(dynamicSong, 'notes', []);
+
+		var songData:SwagSong = cast dynamicSong;
 		songData.validScore = true;
 		return songData;
 	}

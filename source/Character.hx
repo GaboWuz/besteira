@@ -21,6 +21,13 @@ class Character extends FlxSprite
 	public var healthIcon:String = '';
 	public var isJsonCharacter:Bool = false;
 	public var jsonIdleAnimation:String = 'idle';
+	public var positionOffsetX:Float = 0;
+	public var positionOffsetY:Float = 0;
+
+	// Eventos básicos da Psych.
+	public var idleSuffix:String = '';
+	public var specialAnim:Bool = false;
+	public var specialAnimTimer:Float = 0;
 
 	private var danced:Bool = false;
 
@@ -431,8 +438,26 @@ class Character extends FlxSprite
 		if (sustainHoldEnd >= 0 && Conductor.songPosition > sustainHoldEnd)
 			clearSustainHold();
 
+		if (specialAnim)
+		{
+			if (specialAnimTimer > 0)
+			{
+				specialAnimTimer -= elapsed;
+				if (specialAnimTimer <= 0)
+				{
+					specialAnim = false;
+					dance();
+				}
+			}
+			else if (animation.curAnim == null || animation.curAnim.finished)
+			{
+				specialAnim = false;
+				dance();
+			}
+		}
+
 		// Boyfriend.hx cuida do player. Aqui cuidamos apenas do oponente.
-		if (!isPlayer && animation.curAnim != null)
+		if (!specialAnim && !isPlayer && animation.curAnim != null)
 		{
 			if (animation.curAnim.name.startsWith('sing'))
 				holdTimer += elapsed;
@@ -456,20 +481,24 @@ class Character extends FlxSprite
 
 	public function dance():Void
 	{
-		if (debugMode || isHoldingSustain())
+		if (debugMode || isHoldingSustain() || specialAnim)
 			return;
 
 		if (isJsonCharacter)
 		{
-			var hasLeft:Bool = animation.getByName('danceLeft') != null;
-			var hasRight:Bool = animation.getByName('danceRight') != null;
+			var leftName:String = resolveIdleName('danceLeft');
+			var rightName:String = resolveIdleName('danceRight');
+			var idleName:String = resolveIdleName(jsonIdleAnimation);
+			var hasLeft:Bool = animation.getByName(leftName) != null;
+			var hasRight:Bool = animation.getByName(rightName) != null;
+
 			if (hasLeft && hasRight)
 			{
 				danced = !danced;
-				playAnim(danced ? 'danceRight' : 'danceLeft');
+				playAnim(danced ? rightName : leftName);
 			}
 			else
-				playAnim(jsonIdleAnimation);
+				playAnim(idleName);
 			return;
 		}
 
@@ -479,17 +508,56 @@ class Character extends FlxSprite
 				if (animation.curAnim == null || !animation.curAnim.name.startsWith('hair'))
 				{
 					danced = !danced;
-					playAnim(danced ? 'danceRight' : 'danceLeft');
+					playAnim(resolveIdleName(danced ? 'danceRight' : 'danceLeft'));
 				}
 
 			case 'spooky':
 				danced = !danced;
-				playAnim(danced ? 'danceRight' : 'danceLeft');
+				playAnim(resolveIdleName(danced ? 'danceRight' : 'danceLeft'));
 
 			default:
-				if (animation.getByName('idle') != null)
-					playAnim('idle');
+				var idleName:String = resolveIdleName('idle');
+				if (animation.getByName(idleName) != null)
+					playAnim(idleName);
 		}
+	}
+
+
+	public function playSpecialAnim(name:String, duration:Float = 0):Bool
+	{
+		if (name == null || animation.getByName(name) == null)
+			return false;
+
+		clearSustainHold();
+		specialAnim = true;
+		specialAnimTimer = duration > 0 ? duration : 0;
+		playAnim(name, true);
+		return true;
+	}
+
+	public function cancelSpecialAnim():Void
+	{
+		specialAnim = false;
+		specialAnimTimer = 0;
+	}
+
+	public function setIdleSuffix(value:String):Void
+	{
+		idleSuffix = value == null ? '' : value;
+		specialAnim = false;
+		dance();
+	}
+
+	function resolveIdleName(baseName:String):String
+	{
+		if (idleSuffix != null && idleSuffix.length > 0)
+		{
+			var suffixed:String = baseName + idleSuffix;
+			if (animation.getByName(suffixed) != null)
+				return suffixed;
+		}
+
+		return baseName;
 	}
 
 	public function playAnim(AnimName:String, Force:Bool = false, Reversed:Bool = false, Frame:Int = 0):Void

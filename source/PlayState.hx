@@ -23,6 +23,7 @@ import lime.media.AudioContext;
 import lime.media.AudioManager;
 import openfl.Lib;
 import Section.SwagSection;
+import KadeshEvent.KadeshEventNote;
 import Song.SwagSong;
 import WiggleEffect.WiggleEffectType;
 import flixel.FlxBasic;
@@ -118,11 +119,18 @@ class PlayState extends MusicBeatState
 
 	public var notes:FlxTypedGroup<Note>;
 	private var unspawnNotes:Array<Note> = [];
+	private var eventNotes:Array<KadeshEventNote> = [];
+
+	// Velocidade usada no movimento das notas. Pode mudar por evento.
+	public var songSpeed(get, set):Float;
+	private var _songSpeed:Float = 1;
+	private var songSpeedTween:FlxTween;
 
 	public var strumLine:FlxSprite;
 	private var curSection:Int = 0;
 
 	private var camFollow:FlxObject;
+	private var isCameraOnForcedPos:Bool = false;
 
 	private static var prevCamFollow:FlxObject;
 
@@ -1498,16 +1506,527 @@ class PlayState extends MusicBeatState
 		#end
 	}
 
+
+	function get_songSpeed():Float
+	{
+		return _songSpeed;
+	}
+
+	function set_songSpeed(value:Float):Float
+	{
+		if (Math.isNaN(value) || value <= 0)
+			value = 0.01;
+
+		var previous:Float = _songSpeed;
+		if (previous <= 0 || Math.isNaN(previous))
+			previous = value;
+
+		var ratio:Float = value / previous;
+
+		if (generatedMusic && ratio != 1)
+		{
+			if (notes != null)
+			{
+				notes.forEachAlive(function(note:Note)
+				{
+					rescaleSustainNote(note, ratio);
+				});
+			}
+
+			for (note in unspawnNotes)
+				rescaleSustainNote(note, ratio);
+		}
+
+		_songSpeed = value;
+		return value;
+	}
+
+	function rescaleSustainNote(note:Note, ratio:Float):Void
+	{
+		if (note == null || !note.isSustainNote)
+			return;
+
+		note.scale.y *= ratio;
+		note.updateHitbox();
+	}
+
+	function checkEventNotes():Void
+	{
+		while (eventNotes.length > 0
+			&& eventNotes[0].strumTime <= Conductor.songPosition)
+		{
+			var event:Null<KadeshEventNote> = eventNotes.shift();
+			if (event != null)
+				triggerEventNote(event.event, event.value1, event.value2);
+		}
+	}
+
+	public function triggerEventNote(eventName:String, value1:String, value2:String):Void
+	{
+		if (eventName == null)
+			return;
+
+		if (value1 == null)
+			value1 = '';
+		if (value2 == null)
+			value2 = '';
+
+		switch (eventName.trim())
+		{
+			case 'Hey!':
+				var target:Int = 2;
+				switch (value1.toLowerCase().trim())
+				{
+					case 'bf' | 'boyfriend' | '0':
+						target = 0;
+					case 'gf' | 'girlfriend' | '1':
+						target = 1;
+				}
+
+				var duration:Float = parseEventFloat(value2, 0.6);
+				if (duration <= 0)
+					duration = 0.6;
+
+				if (target != 1 && boyfriend != null)
+					boyfriend.playSpecialAnim('hey', duration);
+
+				if (target != 0 && gf != null)
+				{
+					if (!gf.playSpecialAnim('cheer', duration))
+						gf.playSpecialAnim('hey', duration);
+				}
+
+			case 'Set GF Speed':
+				var newGfSpeed:Null<Int> = Std.parseInt(value1.trim());
+				gfSpeed = newGfSpeed == null || newGfSpeed < 1 ? 1 : newGfSpeed;
+
+			case 'Add Camera Zoom':
+				var gameZoom:Float = parseEventFloat(value1, 0.015);
+				var hudZoom:Float = parseEventFloat(value2, 0.03);
+
+				if (FlxG.camera.zoom < 1.35)
+				{
+					FlxG.camera.zoom += gameZoom;
+					camHUD.zoom += hudZoom;
+				}
+
+			case 'Set Camera Zoom' | 'Set Cam Zoom':
+				defaultCamZoom = parseEventFloat(value1, defaultCamZoom);
+				if (value2.trim().length > 0)
+					camHUD.zoom = parseEventFloat(value2, camHUD.zoom);
+
+			case 'Play Animation':
+				var animationCharacter:Character = getEventCharacter(value2);
+				if (animationCharacter != null)
+					animationCharacter.playSpecialAnim(value1.trim(), 0);
+
+			case 'Camera Follow Pos':
+				var hasX:Bool = value1.trim().length > 0;
+				var hasY:Bool = value2.trim().length > 0;
+
+				if (!hasX && !hasY)
+				{
+					isCameraOnForcedPos = false;
+				}
+				else
+				{
+					var forceX:Float = parseEventFloat(value1, camFollow.x);
+					var forceY:Float = parseEventFloat(value2, camFollow.y);
+					camFollow.setPosition(forceX, forceY);
+					isCameraOnForcedPos = true;
+				}
+
+			case 'Alt Idle Animation':
+				var idleCharacter:Character = getEventCharacter(value1);
+				if (idleCharacter != null)
+					idleCharacter.setIdleSuffix(value2);
+
+			case 'Screen Shake':
+				applyCameraShake(FlxG.camera, value1);
+				applyCameraShake(camHUD, value2);
+
+			case 'Change Character':
+				var characterType:Int = parseCharacterType(value1);
+				changeEventCharacter(characterType, value2.trim());
+
+			case 'Change Scroll Speed':
+				var multiplier:Float = parseEventFloat(value1, 1);
+				var duration:Float = parseEventFloat(value2, 0);
+				var baseSpeed:Float = PlayStateChangeables.scrollSpeed == 1
+					? SONG.speed
+					: PlayStateChangeables.scrollSpeed;
+				var targetSpeed:Float = baseSpeed * multiplier;
+
+				if (songSpeedTween != null)
+				{
+					songSpeedTween.cancel();
+					songSpeedTween = null;
+				}
+
+				if (duration <= 0)
+					songSpeed = targetSpeed;
+				else
+				{
+					songSpeedTween = FlxTween.tween(
+						this,
+						{songSpeed: targetSpeed},
+						duration,
+						{
+							ease: FlxEase.linear,
+							onComplete: function(tween:FlxTween)
+							{
+								songSpeedTween = null;
+							}
+						}
+					);
+				}
+
+			// Eventos específicos de músicas e Set Property não são executados.
+			case 'Dadbattle Spotlight'
+				| 'Blammed Lights'
+				| 'Philly Glow'
+				| 'Kill Henchmen'
+				| 'Trigger BG Ghouls'
+				| 'BG Freaks Expression'
+				| 'Set Property':
+				trace('[KadeshEvent] Evento ignorado propositalmente: ' + eventName);
+
+			default:
+				trace('[KadeshEvent] Evento não suportado: ' + eventName);
+		}
+	}
+
+	function parseEventFloat(value:String, fallback:Float):Float
+	{
+		var parsed:Float = Std.parseFloat(value);
+		return Math.isNaN(parsed) ? fallback : parsed;
+	}
+
+	function applyCameraShake(camera:FlxCamera, value:String):Void
+	{
+		if (camera == null || value == null)
+			return;
+
+		var split:Array<String> = value.split(',');
+		var duration:Float = split.length > 0
+			? parseEventFloat(split[0].trim(), 0)
+			: 0;
+		var intensity:Float = split.length > 1
+			? parseEventFloat(split[1].trim(), 0)
+			: 0;
+
+		if (duration > 0 && intensity != 0)
+			camera.shake(intensity, duration);
+	}
+
+	function parseCharacterType(value:String):Int
+	{
+		switch (value.toLowerCase().trim())
+		{
+			case 'dad' | 'opponent':
+				return 1;
+			case 'gf' | 'girlfriend':
+				return 2;
+			case 'bf' | 'boyfriend':
+				return 0;
+			default:
+				var parsed:Null<Int> = Std.parseInt(value.trim());
+				return parsed == null ? 0 : parsed;
+		}
+	}
+
+	function getEventCharacter(value:String):Character
+	{
+		switch (value.toLowerCase().trim())
+		{
+			case 'bf' | 'boyfriend' | '1':
+				return boyfriend;
+			case 'gf' | 'girlfriend' | '2':
+				return gf;
+			default:
+				return dad;
+		}
+	}
+
+	function changeEventCharacter(characterType:Int, newCharacter:String):Void
+	{
+		if (newCharacter == null || newCharacter.length == 0)
+		{
+			trace('[KadeshEvent] Change Character sem nome de personagem.');
+			return;
+		}
+
+		switch (characterType)
+		{
+			case 0:
+				if (boyfriend == null || boyfriend.curCharacter == newCharacter)
+					return;
+
+				var oldBoyfriend:Boyfriend = boyfriend;
+				var newBoyfriend:Boyfriend = new Boyfriend(
+					oldBoyfriend.x - oldBoyfriend.positionOffsetX,
+					oldBoyfriend.y - oldBoyfriend.positionOffsetY,
+					newCharacter
+				);
+
+				copyCharacterDisplay(oldBoyfriend, newBoyfriend);
+				replaceCharacterMember(oldBoyfriend, newBoyfriend);
+				boyfriend = newBoyfriend;
+
+				if (iconP1 != null)
+					iconP1.changeIcon(boyfriend.healthIcon, true);
+
+			case 1:
+				if (dad == null || dad.curCharacter == newCharacter)
+					return;
+
+				var oldDad:Character = dad;
+				var newDad:Character = new Character(
+					oldDad.x - oldDad.positionOffsetX,
+					oldDad.y - oldDad.positionOffsetY,
+					newCharacter
+				);
+
+				copyCharacterDisplay(oldDad, newDad);
+				replaceCharacterMember(oldDad, newDad);
+				dad = newDad;
+
+				if (gf != null)
+					gf.visible = !dad.curCharacter.startsWith('gf');
+
+				if (iconP2 != null)
+					iconP2.changeIcon(dad.healthIcon, false);
+
+			case 2:
+				if (gf == null || gf.curCharacter == newCharacter)
+					return;
+
+				var oldGf:Character = gf;
+				var newGf:Character = new Character(
+					oldGf.x - oldGf.positionOffsetX,
+					oldGf.y - oldGf.positionOffsetY,
+					newCharacter
+				);
+
+				copyCharacterDisplay(oldGf, newGf);
+				replaceCharacterMember(oldGf, newGf);
+				gf = newGf;
+
+			default:
+				trace('[KadeshEvent] Tipo de personagem inválido: ' + characterType);
+		}
+	}
+
+	function copyCharacterDisplay(oldCharacter:Character, newCharacter:Character):Void
+	{
+		newCharacter.scrollFactor.set(
+			oldCharacter.scrollFactor.x,
+			oldCharacter.scrollFactor.y
+		);
+		newCharacter.alpha = oldCharacter.alpha;
+		newCharacter.visible = oldCharacter.visible;
+		newCharacter.color = oldCharacter.color;
+		newCharacter.cameras = oldCharacter.cameras;
+	}
+
+	function replaceCharacterMember(oldCharacter:Character, newCharacter:Character):Void
+	{
+		var oldIndex:Int = members.indexOf(oldCharacter);
+		remove(oldCharacter, false);
+
+		if (oldIndex >= 0)
+			insert(oldIndex, newCharacter);
+		else if (!PlayStateChangeables.Optimize)
+			add(newCharacter);
+
+		oldCharacter.destroy();
+	}
+
+	function getSingAnimation(direction:Int):String
+	{
+		switch (direction)
+		{
+			case 0:
+				return 'singLEFT';
+			case 1:
+				return 'singDOWN';
+			case 2:
+				return 'singUP';
+			case 3:
+				return 'singRIGHT';
+			default:
+				return 'idle';
+		}
+	}
+
+	function playSingWithFallback(
+		character:Character,
+		direction:Int,
+		suffix:String
+	):Bool
+	{
+		if (character == null)
+			return false;
+
+		var baseName:String = getSingAnimation(direction);
+		var requested:String = baseName + suffix;
+
+		if (character.animation.getByName(requested) == null)
+			requested = baseName;
+
+		if (character.animation.getByName(requested) == null)
+			return false;
+
+		character.cancelSpecialAnim();
+		character.playAnim(requested, true);
+		character.holdTimer = 0;
+		return true;
+	}
+
+	function handlePlayerNoteAnimation(note:Note):Void
+	{
+		if (note == null || note.noAnimation)
+			return;
+
+		if (note.noteType == 'Hey!')
+		{
+			// Hey! é uma animação especial da cabeça da nota; não reinicia no sustain.
+			if (note.isSustainNote)
+				return;
+
+			var playedHey:Bool = boyfriend != null
+				&& boyfriend.playSpecialAnim('hey', 0.6);
+
+			if (gf != null)
+				gf.playSpecialAnim('cheer', 0.6);
+
+			if (playedHey)
+				return;
+		}
+
+		var character:Character = note.gfNote ? gf : boyfriend;
+		if (character == null)
+			return;
+
+		if (!note.isSustainNote)
+		{
+			character.clearSustainHold();
+
+			if (playSingWithFallback(character, note.noteData, note.animSuffix)
+				&& note.sustainLength > 0)
+			{
+				character.beginSustainHold(
+					note.strumTime
+					+ note.sustainLength
+					+ Conductor.stepCrochet * 0.5,
+					note.noteData
+				);
+			}
+		}
+		else
+		{
+			character.refreshSustainHold(
+				note.strumTime + Conductor.stepCrochet,
+				note.noteData
+			);
+		}
+	}
+
+	function handleOpponentNoteAnimation(note:Note):Void
+	{
+		if (note == null || note.noAnimation)
+			return;
+
+		var character:Character = note.gfNote ? gf : dad;
+		if (character == null)
+			return;
+
+		if (note.noteType == 'Hey!')
+		{
+			// Hey! é uma animação especial da cabeça da nota; não reinicia no sustain.
+			if (note.isSustainNote)
+				return;
+
+			var playedHey:Bool = character.playSpecialAnim('hey', 0.6);
+			if (!playedHey)
+				playedHey = character.playSpecialAnim('cheer', 0.6);
+
+			if (playedHey)
+				return;
+		}
+
+		var suffix:String = note.animSuffix;
+
+		if (suffix.length == 0)
+		{
+			var sectionIndex:Int = Std.int(Math.floor(curStep / 16));
+			if (sectionIndex >= 0
+				&& sectionIndex < SONG.notes.length
+				&& SONG.notes[sectionIndex] != null
+				&& SONG.notes[sectionIndex].altAnim)
+			{
+				suffix = '-alt';
+			}
+		}
+
+		if (!note.isSustainNote)
+		{
+			character.clearSustainHold();
+
+			if (playSingWithFallback(character, note.noteData, suffix)
+				&& note.sustainLength > 0)
+			{
+				character.beginSustainHold(
+					note.strumTime
+					+ note.sustainLength
+					+ Conductor.stepCrochet * 0.5,
+					note.noteData
+				);
+			}
+		}
+		else
+		{
+			character.refreshSustainHold(
+				note.strumTime + Conductor.stepCrochet,
+				note.noteData
+			);
+		}
+	}
+
+
+	function handleNoteMissAnimation(direction:Int, note:Note):Void
+	{
+		if (note != null && note.noAnimation)
+			return;
+
+		var character:Character = note != null && note.gfNote ? gf : boyfriend;
+		if (character == null)
+			return;
+
+		var suffix:String = note == null ? '' : note.animSuffix;
+		var requested:String = getSingAnimation(direction) + 'miss' + suffix;
+
+		if (character.animation.getByName(requested) == null)
+			requested = getSingAnimation(direction) + 'miss';
+
+		if (character.animation.getByName(requested) != null)
+		{
+			character.cancelSpecialAnim();
+			character.playAnim(requested, true);
+		}
+	}
+
 	var debugNum:Int = 0;
 
 	private function generateSong(dataPath:String):Void
 	{
-		// FlxG.log.add(ChartParser.parse());
-
 		var songData = SONG;
 		Conductor.changeBPM(songData.bpm);
 
 		curSong = songData.song;
+		songSpeed = PlayStateChangeables.scrollSpeed == 1
+			? SONG.speed
+			: PlayStateChangeables.scrollSpeed;
 
 		if (SONG.needsVoices)
 			vocals = new FlxSound().loadEmbedded(Paths.voices(PlayState.SONG.song));
@@ -1515,118 +2034,147 @@ class PlayState extends MusicBeatState
 			vocals = new FlxSound();
 
 		trace('loaded vocals');
-
 		FlxG.sound.list.add(vocals);
 
 		notes = new FlxTypedGroup<Note>();
 		add(notes);
 
-		var noteData:Array<SwagSection>;
-
-		// NEW SHIT
-		noteData = songData.notes;
-
-		var playerCounter:Int = 0;
+		var noteData:Array<SwagSection> = songData.notes;
 
 		// Per song offset check
 		#if windows
-			// pre lowercasing the song name (generateSong)
 			var songLowercase = StringTools.replace(PlayState.SONG.song, " ", "-").toLowerCase();
-				switch (songLowercase) {
-					case 'dad-battle': songLowercase = 'dadbattle';
-					case 'philly-nice': songLowercase = 'philly';
-				}
+			switch (songLowercase)
+			{
+				case 'dad-battle':
+					songLowercase = 'dadbattle';
+				case 'philly-nice':
+					songLowercase = 'philly';
+			}
 
 			var songPath = 'assets/data/' + songLowercase + '/';
-			
-			for(file in sys.FileSystem.readDirectory(songPath))
+
+			if (sys.FileSystem.exists(songPath) && sys.FileSystem.isDirectory(songPath))
 			{
-				var path = haxe.io.Path.join([songPath, file]);
-				if(!sys.FileSystem.isDirectory(path))
+				for (file in sys.FileSystem.readDirectory(songPath))
 				{
-					if(path.endsWith('.offset'))
+					var path = haxe.io.Path.join([songPath, file]);
+					if (!sys.FileSystem.isDirectory(path))
 					{
-						trace('Found offset file: ' + path);
-						songOffset = Std.parseFloat(file.substring(0, file.indexOf('.off')));
-						break;
-					}else {
-						trace('Offset file not found. Creating one @: ' + songPath);
-						sys.io.File.saveContent(songPath + songOffset + '.offset', '');
+						if (path.endsWith('.offset'))
+						{
+							trace('Found offset file: ' + path);
+							songOffset = Std.parseFloat(file.substring(0, file.indexOf('.off')));
+							if (Math.isNaN(songOffset))
+								songOffset = 0;
+							break;
+						}
 					}
 				}
 			}
 		#end
-		var daBeats:Int = 0; // Not exactly representative of 'daBeats' lol, just how much it has looped
+
+		var globalOffset:Float = FlxG.save.data.offset + songOffset;
+		eventNotes = KadeshEvent.load(
+			SONG.song,
+			SONG.events,
+			globalOffset
+		);
+
 		for (section in noteData)
 		{
-			var coolSection:Int = Std.int(section.lengthInSteps / 4);
-
-			for (songNotes in section.sectionNotes)
+			for (rawSongNotes in section.sectionNotes)
 			{
-				var daStrumTime:Float = songNotes[0] + FlxG.save.data.offset + songOffset;
-				if (daStrumTime < 0)
-					daStrumTime = 0;
-				var daNoteData:Int = Std.int(songNotes[1] % 4);
+				if (!Std.isOfType(rawSongNotes, Array))
+					continue;
 
-				var gottaHitNote:Bool = section.mustHitSection;
+				var songNotes:Array<Dynamic> = cast rawSongNotes;
+				if (songNotes.length < 3)
+					continue;
 
-				if (songNotes[1] > 3)
+				var rawLane:Float = Std.parseFloat(Std.string(songNotes[1]));
+				if (Math.isNaN(rawLane))
+					rawLane = 0;
+
+				// Formato antigo da Psych: lane negativa representa evento.
+				if (rawLane < 0)
 				{
-					gottaHitNote = !section.mustHitSection;
+					var oldEvent:Null<KadeshEventNote> = KadeshEvent.fromLegacyNote(songNotes, globalOffset);
+					if (oldEvent != null)
+						eventNotes.push(oldEvent);
+					continue;
 				}
 
-				var oldNote:Note;
-				if (unspawnNotes.length > 0)
-					oldNote = unspawnNotes[Std.int(unspawnNotes.length - 1)];
-				else
-					oldNote = null;
+				var daStrumTime:Float = Std.parseFloat(Std.string(songNotes[0])) + globalOffset;
+				if (Math.isNaN(daStrumTime) || daStrumTime < 0)
+					daStrumTime = 0;
+
+				var daNoteData:Int = Std.int(rawLane % 4);
+				var gottaHitNote:Bool = section.mustHitSection;
+
+				if (rawLane > 3)
+					gottaHitNote = !section.mustHitSection;
+
+				var oldNote:Note = unspawnNotes.length > 0
+					? unspawnNotes[unspawnNotes.length - 1]
+					: null;
 
 				var swagNote:Note = new Note(daStrumTime, daNoteData, oldNote);
 
 				if (!gottaHitNote && PlayStateChangeables.Optimize)
 					continue;
 
-				swagNote.sustainLength = songNotes[2];
+				swagNote.mustPress = gottaHitNote;
+				swagNote.sustainLength = Std.parseFloat(Std.string(songNotes[2]));
+				if (Math.isNaN(swagNote.sustainLength))
+					swagNote.sustainLength = 0;
+
+				var rawNoteType:Dynamic = songNotes.length > 3 ? songNotes[3] : '';
+				swagNote.setNoteType(rawNoteType);
+
+				var sectionGf:Bool = Reflect.field(section, 'gfSection') == true;
+				if (sectionGf && rawLane < 4)
+					swagNote.gfNote = true;
+
 				swagNote.scrollFactor.set(0, 0);
-
-				var susLength:Float = swagNote.sustainLength;
-
-				susLength = susLength / Conductor.stepCrochet;
 				unspawnNotes.push(swagNote);
+
+				var susLength:Float = swagNote.sustainLength / Conductor.stepCrochet;
 
 				for (susNote in 0...Math.floor(susLength))
 				{
-					oldNote = unspawnNotes[Std.int(unspawnNotes.length - 1)];
+					oldNote = unspawnNotes[unspawnNotes.length - 1];
 
-					var sustainNote:Note = new Note(daStrumTime + (Conductor.stepCrochet * susNote) + Conductor.stepCrochet, daNoteData, oldNote, true);
+					var sustainNote:Note = new Note(
+						daStrumTime + (Conductor.stepCrochet * susNote) + Conductor.stepCrochet,
+						daNoteData,
+						oldNote,
+						true
+					);
+
+					sustainNote.copyNoteType(swagNote);
 					sustainNote.scrollFactor.set();
+					sustainNote.mustPress = gottaHitNote;
 					unspawnNotes.push(sustainNote);
 
-					sustainNote.mustPress = gottaHitNote;
-
 					if (sustainNote.mustPress)
-					{
-						sustainNote.x += FlxG.width / 2; // general offset
-					}
+						sustainNote.x += FlxG.width / 2;
 				}
-
-				swagNote.mustPress = gottaHitNote;
 
 				if (swagNote.mustPress)
-				{
-					swagNote.x += FlxG.width / 2; // general offset
-				}
-				else
-				{
-				}
+					swagNote.x += FlxG.width / 2;
 			}
-			daBeats += 1;
 		}
 
-		// trace(unspawnNotes.length);
-		// playerCounter += 1;
-
 		unspawnNotes.sort(sortByShit);
+		eventNotes.sort(function(a:KadeshEventNote, b:KadeshEventNote):Int
+		{
+			if (a.strumTime < b.strumTime)
+				return -1;
+			if (a.strumTime > b.strumTime)
+				return 1;
+			return 0;
+		});
 
 		generatedMusic = true;
 	}
@@ -2220,7 +2768,7 @@ class PlayState extends MusicBeatState
 				luaModchart.setVar("mustHit",PlayState.SONG.notes[Std.int(curStep / 16)].mustHitSection);
 			#end
 
-			if (camFollow.x != dad.getMidpoint().x + 150 && !PlayState.SONG.notes[Std.int(curStep / 16)].mustHitSection)
+			if (!isCameraOnForcedPos && camFollow.x != dad.getMidpoint().x + 150 && !PlayState.SONG.notes[Std.int(curStep / 16)].mustHitSection)
 			{
 				var offsetX = 0;
 				var offsetY = 0;
@@ -2254,7 +2802,7 @@ class PlayState extends MusicBeatState
 					vocals.volume = 1;
 			}
 
-			if (PlayState.SONG.notes[Std.int(curStep / 16)].mustHitSection && camFollow.x != boyfriend.getMidpoint().x - 100)
+			if (!isCameraOnForcedPos && PlayState.SONG.notes[Std.int(curStep / 16)].mustHitSection && camFollow.x != boyfriend.getMidpoint().x - 100)
 			{
 				var offsetX = 0;
 				var offsetY = 0;
@@ -2371,6 +2919,8 @@ class PlayState extends MusicBeatState
 				}
 		}
 
+		checkEventNotes();
+
 		if (unspawnNotes[0] != null)
 		{
 			if (unspawnNotes[0].strumTime - Conductor.songPosition < 3500)
@@ -2406,9 +2956,9 @@ class PlayState extends MusicBeatState
 							if (PlayStateChangeables.useDownscroll)
 							{
 								if (daNote.mustPress)
-									daNote.y = (playerStrums.members[Math.floor(Math.abs(daNote.noteData))].y + 0.45 * (Conductor.songPosition - daNote.strumTime) * FlxMath.roundDecimal(PlayStateChangeables.scrollSpeed == 1 ? SONG.speed : PlayStateChangeables.scrollSpeed, 2));
+									daNote.y = (playerStrums.members[Math.floor(Math.abs(daNote.noteData))].y + 0.45 * (Conductor.songPosition - daNote.strumTime) * FlxMath.roundDecimal(songSpeed, 2));
 								else
-									daNote.y = (strumLineNotes.members[Math.floor(Math.abs(daNote.noteData))].y + 0.45 * (Conductor.songPosition - daNote.strumTime) * FlxMath.roundDecimal(PlayStateChangeables.scrollSpeed == 1 ? SONG.speed : PlayStateChangeables.scrollSpeed, 2));
+									daNote.y = (strumLineNotes.members[Math.floor(Math.abs(daNote.noteData))].y + 0.45 * (Conductor.songPosition - daNote.strumTime) * FlxMath.roundDecimal(songSpeed, 2));
 								if(daNote.isSustainNote)
 								{
 									// Remember = minus makes notes go up, plus makes them go down
@@ -2440,9 +2990,9 @@ class PlayState extends MusicBeatState
 							}else
 							{
 								if (daNote.mustPress)
-									daNote.y = (playerStrums.members[Math.floor(Math.abs(daNote.noteData))].y - 0.45 * (Conductor.songPosition - daNote.strumTime) * FlxMath.roundDecimal(PlayStateChangeables.scrollSpeed == 1 ? SONG.speed : PlayStateChangeables.scrollSpeed, 2));
+									daNote.y = (playerStrums.members[Math.floor(Math.abs(daNote.noteData))].y - 0.45 * (Conductor.songPosition - daNote.strumTime) * FlxMath.roundDecimal(songSpeed, 2));
 								else
-									daNote.y = (strumLineNotes.members[Math.floor(Math.abs(daNote.noteData))].y - 0.45 * (Conductor.songPosition - daNote.strumTime) * FlxMath.roundDecimal(PlayStateChangeables.scrollSpeed == 1 ? SONG.speed : PlayStateChangeables.scrollSpeed, 2));
+									daNote.y = (strumLineNotes.members[Math.floor(Math.abs(daNote.noteData))].y - 0.45 * (Conductor.songPosition - daNote.strumTime) * FlxMath.roundDecimal(songSpeed, 2));
 								if(daNote.isSustainNote)
 								{
 									daNote.y -= daNote.height / 2;
@@ -2475,45 +3025,7 @@ class PlayState extends MusicBeatState
 						if (SONG.song != 'Tutorial')
 							camZooming = true;
 
-						var altAnim:String = "";
-	
-						if (SONG.notes[Math.floor(curStep / 16)] != null)
-						{
-							if (SONG.notes[Math.floor(curStep / 16)].altAnim)
-								altAnim = '-alt';
-						}
-	
-						var dadDirection:Int = Math.floor(Math.abs(daNote.noteData));
-
-						if (!daNote.isSustainNote)
-						{
-							dad.clearSustainHold();
-
-							switch (dadDirection)
-							{
-								case 2: dad.playAnim('singUP' + altAnim, true);
-								case 3: dad.playAnim('singRIGHT' + altAnim, true);
-								case 1: dad.playAnim('singDOWN' + altAnim, true);
-								case 0: dad.playAnim('singLEFT' + altAnim, true);
-							}
-
-							if (daNote.sustainLength > 0)
-							{
-								dad.beginSustainHold(
-									daNote.strumTime + daNote.sustainLength + Conductor.stepCrochet * 0.5,
-									dadDirection
-								);
-							}
-						}
-						else
-						{
-							// A cauda do hold só prolonga o lock; não reinicia a animação.
-							dad.refreshSustainHold(
-								daNote.strumTime + Conductor.stepCrochet,
-								dadDirection
-							);
-						}
-						
+						handleOpponentNoteAnimation(daNote);
 						if (FlxG.save.data.cpuStrums)
 						{
 							cpuStrums.forEach(function(spr:FlxSprite)
@@ -2538,8 +3050,6 @@ class PlayState extends MusicBeatState
 							luaModchart.executeState('playerTwoSing', [Math.abs(daNote.noteData), Conductor.songPosition]);
 						#end
 
-						if (!daNote.isSustainNote)
-							dad.holdTimer = 0;
 	
 						if (SONG.needsVoices)
 							vocals.volume = 1;
@@ -3375,17 +3885,7 @@ class PlayState extends MusicBeatState
 			// FlxG.sound.play(Paths.sound('missnote1'), 1, false);
 			// FlxG.log.add('played imss note');
 
-			switch (direction)
-			{
-				case 0:
-					boyfriend.playAnim('singLEFTmiss', true);
-				case 1:
-					boyfriend.playAnim('singDOWNmiss', true);
-				case 2:
-					boyfriend.playAnim('singUPmiss', true);
-				case 3:
-					boyfriend.playAnim('singRIGHTmiss', true);
-			}
+			handleNoteMissAnimation(direction, daNote);
 
 			#if windows
 			if (luaModchart != null)
@@ -3535,35 +4035,7 @@ class PlayState extends MusicBeatState
 						totalNotesHit += 1;
 	
 
-					if (!note.isSustainNote)
-					{
-						boyfriend.clearSustainHold();
-						boyfriend.holdTimer = 0;
-
-						switch (note.noteData)
-						{
-							case 2: boyfriend.playAnim('singUP', true);
-							case 3: boyfriend.playAnim('singRIGHT', true);
-							case 1: boyfriend.playAnim('singDOWN', true);
-							case 0: boyfriend.playAnim('singLEFT', true);
-						}
-
-						if (note.sustainLength > 0)
-						{
-							boyfriend.beginSustainHold(
-								note.strumTime + note.sustainLength + Conductor.stepCrochet * 0.5,
-								note.noteData
-							);
-						}
-					}
-					else
-					{
-						// Mantém o último frame do sing durante a sustain.
-						boyfriend.refreshSustainHold(
-							note.strumTime + Conductor.stepCrochet,
-							note.noteData
-						);
-					}
+					handlePlayerNoteAnimation(note);
 		
 					#if windows
 					if (luaModchart != null)
