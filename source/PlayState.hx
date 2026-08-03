@@ -74,6 +74,8 @@ class PlayState extends MusicBeatState
 
 	public static var curStage:String = '';
 	public static var SONG:SwagSong;
+	// Nome escolhido no Freeplay, usado para salvar e ler o mesmo score.
+	public static var scoreSongName:String = null;
 	public static var isStoryMode:Bool = false;
 	public static var storyWeek:Int = 0;
 	public static var storyPlaylist:Array<String> = [];
@@ -1029,11 +1031,11 @@ class PlayState extends MusicBeatState
 		botPlayState.borderQuality = 2;
 		if(PlayStateChangeables.botPlay && !loadRep) add(botPlayState);
 
-		iconP1 = new HealthIcon(SONG.player1, true);
+		iconP1 = new HealthIcon(boyfriend.healthIcon, true);
 		iconP1.y = healthBar.y - (iconP1.height / 2);
 		add(iconP1);
 
-		iconP2 = new HealthIcon(SONG.player2, false);
+		iconP2 = new HealthIcon(dad.healthIcon, false);
 		iconP2.y = healthBar.y - (iconP2.height / 2);
 		add(iconP2);
 
@@ -2481,16 +2483,35 @@ class PlayState extends MusicBeatState
 								altAnim = '-alt';
 						}
 	
-						switch (Math.abs(daNote.noteData))
+						var dadDirection:Int = Math.floor(Math.abs(daNote.noteData));
+
+						if (!daNote.isSustainNote)
 						{
-							case 2:
-								dad.playAnim('singUP' + altAnim, true);
-							case 3:
-								dad.playAnim('singRIGHT' + altAnim, true);
-							case 1:
-								dad.playAnim('singDOWN' + altAnim, true);
-							case 0:
-								dad.playAnim('singLEFT' + altAnim, true);
+							dad.clearSustainHold();
+
+							switch (dadDirection)
+							{
+								case 2: dad.playAnim('singUP' + altAnim, true);
+								case 3: dad.playAnim('singRIGHT' + altAnim, true);
+								case 1: dad.playAnim('singDOWN' + altAnim, true);
+								case 0: dad.playAnim('singLEFT' + altAnim, true);
+							}
+
+							if (daNote.sustainLength > 0)
+							{
+								dad.beginSustainHold(
+									daNote.strumTime + daNote.sustainLength + Conductor.stepCrochet * 0.5,
+									dadDirection
+								);
+							}
+						}
+						else
+						{
+							// A cauda do hold só prolonga o lock; não reinicia a animação.
+							dad.refreshSustainHold(
+								daNote.strumTime + Conductor.stepCrochet,
+								dadDirection
+							);
 						}
 						
 						if (FlxG.save.data.cpuStrums)
@@ -2517,7 +2538,8 @@ class PlayState extends MusicBeatState
 							luaModchart.executeState('playerTwoSing', [Math.abs(daNote.noteData), Conductor.songPosition]);
 						#end
 
-						dad.holdTimer = 0;
+						if (!daNote.isSustainNote)
+							dad.holdTimer = 0;
 	
 						if (SONG.needsVoices)
 							vocals.volume = 1;
@@ -2656,13 +2678,11 @@ class PlayState extends MusicBeatState
 	    #end
 		if (SONG.validScore)
 		{
-			// adjusting the highscore song name to be compatible
-			// would read original scores if we didn't change packages
-			var songHighscore = StringTools.replace(PlayState.SONG.song, " ", "-");
-			switch (songHighscore) {
-				case 'Dad-Battle': songHighscore = 'Dadbattle';
-				case 'Philly-Nice': songHighscore = 'Philly';
-			}
+			// Story sempre usa o nome do chart. Freeplay usa exatamente o nome
+			// selecionado, inclusive para músicas vindas do mods folder.
+			var songHighscore:String = (!isStoryMode && scoreSongName != null && scoreSongName.length > 0)
+				? scoreSongName
+				: PlayState.SONG.song;
 
 			#if !switch
 			Highscore.saveScore(songHighscore, Math.round(songScore), storyDifficulty);
@@ -3239,17 +3259,15 @@ class PlayState extends MusicBeatState
 								if(n != null)
 								{
 									goodNoteHit(daNote);
-									boyfriend.holdTimer = daNote.sustainLength;
 								}
 							}else {
 								goodNoteHit(daNote);
-								boyfriend.holdTimer = daNote.sustainLength;
 							}
 						}
 					}
 				});
 				
-				if (boyfriend.holdTimer > Conductor.stepCrochet * 4 * 0.001 && (!holdArray.contains(true) || PlayStateChangeables.botPlay))
+				if (!boyfriend.isHoldingSustain() && boyfriend.holdTimer > Conductor.stepCrochet * 4 * 0.001 && (!holdArray.contains(true) || PlayStateChangeables.botPlay))
 				{
 					if (boyfriend.animation.curAnim.name.startsWith('sing') && !boyfriend.animation.curAnim.name.endsWith('miss'))
 						boyfriend.playAnim('idle');
@@ -3517,16 +3535,34 @@ class PlayState extends MusicBeatState
 						totalNotesHit += 1;
 	
 
-					switch (note.noteData)
+					if (!note.isSustainNote)
 					{
-						case 2:
-							boyfriend.playAnim('singUP', true);
-						case 3:
-							boyfriend.playAnim('singRIGHT', true);
-						case 1:
-							boyfriend.playAnim('singDOWN', true);
-						case 0:
-							boyfriend.playAnim('singLEFT', true);
+						boyfriend.clearSustainHold();
+						boyfriend.holdTimer = 0;
+
+						switch (note.noteData)
+						{
+							case 2: boyfriend.playAnim('singUP', true);
+							case 3: boyfriend.playAnim('singRIGHT', true);
+							case 1: boyfriend.playAnim('singDOWN', true);
+							case 0: boyfriend.playAnim('singLEFT', true);
+						}
+
+						if (note.sustainLength > 0)
+						{
+							boyfriend.beginSustainHold(
+								note.strumTime + note.sustainLength + Conductor.stepCrochet * 0.5,
+								note.noteData
+							);
+						}
+					}
+					else
+					{
+						// Mantém o último frame do sing durante a sustain.
+						boyfriend.refreshSustainHold(
+							note.strumTime + Conductor.stepCrochet,
+							note.noteData
+						);
 					}
 		
 					#if windows
@@ -3766,7 +3802,7 @@ class PlayState extends MusicBeatState
 			gf.dance();
 		}
 
-		if (!boyfriend.animation.curAnim.name.startsWith("sing"))
+		if (!boyfriend.isHoldingSustain() && boyfriend.animation.curAnim != null && !boyfriend.animation.curAnim.name.startsWith("sing"))
 		{
 			boyfriend.playAnim('idle');
 		}

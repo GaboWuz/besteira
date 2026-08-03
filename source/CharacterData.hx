@@ -67,7 +67,8 @@ class CharacterData
 		imageKey = stripImageExtension(imageKey);
 
 		var atlasType:String = readString(data, 'atlas', 'sparrow').toLowerCase();
-		character.frames = loadFrames(imageKey, atlasType);
+		var library:String = readString(data, 'library', null);
+		character.frames = loadFrames(imageKey, atlasType, library);
 
 		if (character.frames == null)
 			throw 'Não foi possível criar o atlas de "$imageKey".';
@@ -115,7 +116,7 @@ class CharacterData
 		character.playAnim(character.jsonIdleAnimation, true);
 	}
 
-	static function loadFrames(imageKey:String, atlasType:String):FlxAtlasFrames
+	static function loadFrames(imageKey:String, atlasType:String, library:String):FlxAtlasFrames
 	{
 		#if sys
 		var pngPath:String = AndroidStorage.modPath('images/$imageKey.png');
@@ -153,9 +154,9 @@ class CharacterData
 
 		// Permite testar um JSON externo usando uma imagem interna da Kade.
 		if (atlasType == 'packer')
-			return Paths.getPackerAtlas(imageKey);
+			return Paths.getPackerAtlas(imageKey, library);
 
-		return Paths.getSparrowAtlas(imageKey);
+		return Paths.getSparrowAtlas(imageKey, library);
 	}
 
 	static function addAnimation(character:Character, data:Dynamic):Void

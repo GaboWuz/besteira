@@ -39,6 +39,8 @@ class AndroidStorage
 	public static var modsData(default, null):String = "";
 	public static var modsSongs(default, null):String = "";
 	public static var modsImages(default, null):String = "";
+	public static var modsCharacters(default, null):String = "";
+	public static var modsIcons(default, null):String = "";
 	public static var modsSounds(default, null):String = "";
 	public static var modsMusic(default, null):String = "";
 	public static var modsVideos(default, null):String = "";
@@ -276,6 +278,8 @@ class AndroidStorage
 		modsData = join(mods, "data");
 		modsSongs = join(mods, "songs");
 		modsImages = join(mods, "images");
+		modsCharacters = join(mods, "characters");
+		modsIcons = join(modsImages, "icons");
 		modsSounds = join(mods, "sounds");
 		modsMusic = join(mods, "music");
 		modsVideos = join(mods, "videos");
@@ -289,6 +293,8 @@ class AndroidStorage
 		ensureDir(modsData);
 		ensureDir(modsSongs);
 		ensureDir(modsImages);
+		ensureDir(modsCharacters);
+		ensureDir(modsIcons);
 		ensureDir(modsSounds);
 		ensureDir(modsMusic);
 		ensureDir(modsVideos);
@@ -298,7 +304,9 @@ class AndroidStorage
 			"KADESHING - MODS EXTERNOS\n\n" +
 			"Chart: mods/data/nome-da-musica/nome-da-musica.json\n" +
 			"Audio: mods/songs/nome-da-musica/Inst.ogg e Voices.ogg\n" +
-			"Freeplay: mods/data/freeplaySonglist.txt\n");
+			"Freeplay: mods/data/freeplaySonglist.txt\n" +
+			"Personagens JSON: mods/characters/nome.json\n" +
+			"Ícones Psych: mods/images/icons/icon-nome.png\n");
 
 		createTextIfMissing(join(modsData, "freeplaySonglist.txt"),
 			"# Formato: Nome da Musica:icone:semana\n" +

@@ -41,7 +41,39 @@ class FreeplayState extends MusicBeatState
 	override function create()
 	{
 		AndroidStorage.init();
-		loadFreeplaySongs();
+
+		// A lista interna sempre é carregada. A lista externa é apenas um extra;
+		// portanto uma falha no storage nunca deixa o Freeplay vazio.
+		var initSonglist:Array<String> = CoolUtil.coolTextFile(Paths.txt('freeplaySonglist'));
+		var externalText:String = AndroidStorage.readText('data/freeplaySonglist.txt', null);
+		if (externalText != null && externalText.trim().length > 0)
+			initSonglist = initSonglist.concat(externalText.split('\n'));
+
+		for (lineRaw in initSonglist)
+		{
+			var line:String = StringTools.trim(lineRaw);
+			if (line.length == 0 || line.startsWith('#'))
+				continue;
+
+			var data:Array<String> = line.split(':');
+			if (data.length < 3)
+			{
+				trace('[Freeplay] Linha inválida ignorada: ' + line);
+				continue;
+			}
+
+			var parsedWeek:Null<Int> = Std.parseInt(StringTools.trim(data[2]));
+			var week:Int = parsedWeek == null ? 0 : parsedWeek;
+
+			songs.push(new SongMetadata(
+				StringTools.trim(data[0]),
+				week,
+				StringTools.trim(data[1])
+			));
+		}
+
+		if (songs.length == 0)
+			songs.push(new SongMetadata('Tutorial', 0, 'gf'));
 
 		/* 
 			if (FlxG.sound.music != null)
@@ -145,58 +177,6 @@ class FreeplayState extends MusicBeatState
 		super.create();
 	}
 
-	private function loadFreeplaySongs():Void
-	{
-		var allLines:Array<String> = CoolUtil.coolTextFile(Paths.vanillaTxt('freeplaySonglist'));
-		var externalText = AndroidStorage.readText('data/freeplaySonglist.txt');
-
-		if (externalText != null)
-			allLines = allLines.concat(CoolUtil.coolStringFile(externalText));
-
-		for (line in allLines)
-		{
-			var cleanLine = line.trim();
-			if (cleanLine.length == 0 || cleanLine.startsWith('#') || cleanLine.startsWith('//'))
-				continue;
-
-			var data = cleanLine.split(':');
-			if (data.length < 3)
-			{
-				trace('[FreeplayState] Linha ignorada: ' + cleanLine);
-				continue;
-			}
-
-			var songName = data[0].trim();
-			var iconName = data[1].trim();
-			var parsedWeek = Std.parseInt(data[2].trim());
-			var week:Int = parsedWeek == null ? 0 : parsedWeek;
-
-			if (songName.length == 0)
-				continue;
-			if (iconName.length == 0)
-				iconName = 'dad';
-
-			var duplicate = false;
-			for (song in songs)
-			{
-				if (Paths.formatToSongPath(song.songName) == Paths.formatToSongPath(songName))
-				{
-					duplicate = true;
-					break;
-				}
-			}
-
-			if (!duplicate)
-				songs.push(new SongMetadata(songName, week, iconName));
-		}
-
-		if (songs.length == 0)
-		{
-			trace('[FreeplayState] Nenhuma música encontrada. Usando Tutorial como fallback.');
-			songs.push(new SongMetadata('Tutorial', 0, 'gf'));
-		}
-	}
-
 	public function addSong(songName:String, weekNum:Int, songCharacter:String)
 	{
 		songs.push(new SongMetadata(songName, weekNum, songCharacter));
@@ -221,7 +201,7 @@ class FreeplayState extends MusicBeatState
 	{
 		super.update(elapsed);
 
-		if (FlxG.sound.music.volume < 0.7)
+		if (FlxG.sound.music != null && FlxG.sound.music.volume < 0.7)
 		{
 			FlxG.sound.music.volume += 0.5 * FlxG.elapsed;
 		}
@@ -281,20 +261,14 @@ class FreeplayState extends MusicBeatState
 
 		if (accepted && songs.length > 0)
 		{
-			// adjusting the song name to be compatible
-			var songFormat = StringTools.replace(songs[curSelected].songName, " ", "-");
-			switch (songFormat) {
-				case 'Dad-Battle': songFormat = 'Dadbattle';
-				case 'Philly-Nice': songFormat = 'Philly';
-			}
-			
-			trace(songs[curSelected].songName);
+			var selectedSong:String = songs[curSelected].songName;
+			var chartName:String = Highscore.formatSong(selectedSong, curDifficulty);
 
-			var poop:String = Highscore.formatSong(songFormat, curDifficulty);
+			trace(selectedSong);
+			trace(chartName);
 
-			trace(poop);
-			
-			PlayState.SONG = Song.loadFromJson(poop, songs[curSelected].songName);
+			PlayState.scoreSongName = selectedSong;
+			PlayState.SONG = Song.loadFromJson(chartName, selectedSong);
 			PlayState.isStoryMode = false;
 			PlayState.storyDifficulty = curDifficulty;
 			PlayState.storyWeek = songs[curSelected].week;
@@ -305,9 +279,6 @@ class FreeplayState extends MusicBeatState
 
 	function changeDiff(change:Int = 0)
 	{
-		if (songs.length == 0)
-			return;
-
 		curDifficulty += change;
 
 		if (curDifficulty < 0)
@@ -315,16 +286,9 @@ class FreeplayState extends MusicBeatState
 		if (curDifficulty > 2)
 			curDifficulty = 0;
 
-		// adjusting the highscore song name to be compatible (changeDiff)
-		var songHighscore = StringTools.replace(songs[curSelected].songName, " ", "-");
-		switch (songHighscore) {
-			case 'Dad-Battle': songHighscore = 'Dadbattle';
-			case 'Philly-Nice': songHighscore = 'Philly';
-		}
-		
 		#if !switch
-		intendedScore = Highscore.getScore(songHighscore, curDifficulty);
-		combo = Highscore.getCombo(songHighscore, curDifficulty);
+		intendedScore = Highscore.getScore(songs[curSelected].songName, curDifficulty);
+		combo = Highscore.getCombo(songs[curSelected].songName, curDifficulty);
 		#end
 
 		diffText.text = CoolUtil.difficultyFromInt(curDifficulty).toUpperCase();
@@ -332,9 +296,6 @@ class FreeplayState extends MusicBeatState
 
 	function changeSelection(change:Int = 0)
 	{
-		if (songs.length == 0)
-			return;
-
 		#if !switch
 		// NGio.logEvent('Fresh');
 		#end
@@ -351,17 +312,9 @@ class FreeplayState extends MusicBeatState
 
 		// selector.y = (70 * curSelected) + 30;
 		
-		// adjusting the highscore song name to be compatible (changeSelection)
-		// would read original scores if we didn't change packages
-		var songHighscore = StringTools.replace(songs[curSelected].songName, " ", "-");
-		switch (songHighscore) {
-			case 'Dad-Battle': songHighscore = 'Dadbattle';
-			case 'Philly-Nice': songHighscore = 'Philly';
-		}
-
 		#if !switch
-		intendedScore = Highscore.getScore(songHighscore, curDifficulty);
-		combo = Highscore.getCombo(songHighscore, curDifficulty);
+		intendedScore = Highscore.getScore(songs[curSelected].songName, curDifficulty);
+		combo = Highscore.getCombo(songs[curSelected].songName, curDifficulty);
 		// lerpScore = 0;
 		#end
 

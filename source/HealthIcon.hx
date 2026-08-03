@@ -9,14 +9,8 @@ import sys.FileSystem;
 
 class HealthIcon extends FlxSprite
 {
-	/**
-	 * Usado pelo FreeplayState.
-	 */
+	/** Usado pelo FreeplayState. */
 	public var sprTracker:FlxSprite;
-
-	/**
-	 * True somente quando o PNG veio de KadeshEngine/mods/images/icons.
-	 */
 	public var loadedFromMods(default, null):Bool = false;
 
 	public function new(char:String = 'bf', isPlayer:Bool = false)
@@ -30,15 +24,11 @@ class HealthIcon extends FlxSprite
 	}
 
 	/**
-	 * Ícone estilo Psych:
+	 * Ícone externo estilo Psych, usado somente no mods folder:
 	 * KadeshEngine/mods/images/icons/icon-personagem.png
 	 *
-	 * O PNG deve ter 300x150:
-	 * - frame 0 (150x150): normal
-	 * - frame 1 (150x150): perdendo
-	 *
-	 * Esta busca acontece SOMENTE no mods folder. Os personagens internos
-	 * continuam usando o iconGrid original da Kade.
+	 * 300x150 = frame normal + frame perdendo.
+	 * 150x150 também funciona, repetindo o mesmo frame.
 	 */
 	private function loadModIcon(char:String, isPlayer:Bool):Bool
 	{
@@ -62,15 +52,11 @@ class HealthIcon extends FlxSprite
 					continue;
 
 				if (bitmap.width < 150 || bitmap.height < 150)
-				throw 'O ícone "$path" precisa ter pelo menos 150x150.';
+					throw 'O ícone "$path" precisa ter pelo menos 150x150.';
 
 				loadGraphic(bitmap, true, 150, 150);
 
-				var frameCount:Int = frames == null ? 0 : frames.frames.length;
-				if (frameCount <= 0)
-					throw 'Nenhum frame foi criado para "$path".';
-
-				var losingFrame:Int = frameCount > 1 ? 1 : 0;
+				var losingFrame:Int = bitmap.width >= 300 ? 1 : 0;
 				animation.add(char, [0, losingFrame], 0, false, isPlayer);
 				animation.play(char);
 
@@ -115,12 +101,9 @@ class HealthIcon extends FlxSprite
 		animation.add('monster', [19, 20], 0, false, isPlayer);
 		animation.add('monster-christmas', [19, 20], 0, false, isPlayer);
 
-		var selected:String = char;
-		if (animation.getByName(selected) == null)
-		{
-			trace('[HealthIcon] Sem ícone externo ou iconGrid para "$char"; usando face.');
-			selected = 'face';
-		}
+		var selected:String = animation.getByName(char) != null ? char : 'face';
+		if (selected == 'face' && char != 'face')
+			trace('[HealthIcon] Sem PNG externo/iconGrid para "$char"; usando face.');
 
 		animation.play(selected);
 
