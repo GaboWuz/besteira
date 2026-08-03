@@ -72,7 +72,7 @@ class PsychLuaManager
         + '  env._G = env\n'
         + '  setmetatable(env, {__index = _G})\n'
         + '  setfenv(chunk, env)\n'
-        + '  local ok, result = pcall(chunk)\n'
+        + '  local ok, result = xpcall(chunk, debug.traceback)\n'
         + '  if not ok then return false, tostring(result) end\n'
         + '  __kadesh_scripts[id] = env\n'
         + '  return true, ""\n'
@@ -82,7 +82,8 @@ class PsychLuaManager
         + '  if not env then return false, nil, "ambiente Lua não encontrado" end\n'
         + '  local callback = env[callbackName]\n'
         + '  if type(callback) ~= "function" then return true, nil, "" end\n'
-        + '  local ok, result = pcall(callback, ...)\n'
+        + '  local args = {...}\n'
+        + '  local ok, result = xpcall(function() return callback(unpack(args)) end, debug.traceback)\n'
         + '  if not ok then return false, nil, tostring(result) end\n'
         + '  return true, result, ""\n'
         + 'end\n'
@@ -121,7 +122,9 @@ class PsychLuaManager
         }
         catch (e:Dynamic)
         {
-            trace('[PsychLua] Lua foi desativado para esta música: ' + errorText(e));
+            var message:String = 'Lua foi desativado para esta música: ' + errorText(e);
+            trace('[PsychLua] ' + message);
+            KadeshScriptDebug.report('LUA', '<runtime>', message, 'initialize');
             shutdownState();
         }
     }
@@ -387,6 +390,7 @@ class PsychLuaManager
             Lua.settop(lua, base);
             currentCallingScript = -1;
             trace('[PsychLua] Falha nativa ao carregar ' + logicalPath + ': ' + nativeError);
+            KadeshScriptDebug.report('LUA', path, nativeError, 'load');
             return;
         }
 
@@ -398,6 +402,7 @@ class PsychLuaManager
         if (!ok)
         {
             trace('[PsychLua] Erro em ' + logicalPath + ': ' + message);
+            KadeshScriptDebug.report('LUA', path, message, 'load');
             return;
         }
 
@@ -469,10 +474,13 @@ class PsychLuaManager
     {
         script.errorCount++;
         trace('[PsychLua] ' + script.logicalPath + ' -> ' + callback + ': ' + message);
+        KadeshScriptDebug.report('LUA', script.scriptName, message, callback);
 
         if (script.errorCount >= 3)
         {
-            trace('[PsychLua] Script desativado após 3 erros: ' + script.logicalPath);
+            var disabled:String = 'Script desativado após 3 erros: ' + script.logicalPath;
+            trace('[PsychLua] ' + disabled);
+            KadeshScriptDebug.warning('LUA', script.scriptName, disabled);
             closeScript(script);
         }
     }
@@ -567,17 +575,13 @@ class PsychLuaManager
             return null;
         });
 
-        addSafeCallback('getProperty', function(a) return getPropertyPath(stringArg(a, 0)));
-        addSafeCallback('setProperty', function(a) return setPropertyPath(stringArg(a, 0), arg(a, 1)));
+        addSafeCallback('getProperty', function(a) return scriptGetProperty(stringArg(a, 0)));
+        addSafeCallback('setProperty', function(a) return scriptSetProperty(stringArg(a, 0), arg(a, 1)));
 
-        addSafeCallback('getPropertyFromGroup', function(a) {
-            var member:Dynamic = getGroupMember(stringArg(a, 0), intArg(a, 1), true);
-            return member == null ? null : getNested(member, stringArg(a, 2));
-        });
-        addSafeCallback('setPropertyFromGroup', function(a) {
-            var member:Dynamic = getGroupMember(stringArg(a, 0), intArg(a, 1), true);
-            return member == null ? false : setNested(member, stringArg(a, 2), arg(a, 3));
-        });
+        addSafeCallback('getPropertyFromGroup', function(a)
+            return scriptGetPropertyFromGroup(stringArg(a, 0), intArg(a, 1), stringArg(a, 2)));
+        addSafeCallback('setPropertyFromGroup', function(a)
+            return scriptSetPropertyFromGroup(stringArg(a, 0), intArg(a, 1), stringArg(a, 2), arg(a, 3)));
         addSafeCallback('removeFromGroup', function(a) {
             var target:Dynamic = resolveObject(stringArg(a, 0));
             var index:Int = intArg(a, 1);
@@ -593,13 +597,21 @@ class PsychLuaManager
             return true;
         });
 
-        addSafeCallback('getPropertyFromClass', function(a) {
-            var cls:Dynamic = Type.resolveClass(stringArg(a, 0));
-            return cls == null ? null : getNested(cls, stringArg(a, 1));
+        addSafeCallback('getPropertyFromClass', function(a)
+            return scriptGetPropertyFromClass(stringArg(a, 0), stringArg(a, 1)));
+        addSafeCallback('setPropertyFromClass', function(a)
+            return scriptSetPropertyFromClass(stringArg(a, 0), stringArg(a, 1), arg(a, 2)));
+
+        addSafeCallback('getPropertyFromMap', function(a) {
+            var target:Dynamic = resolveObject(stringArg(a, 0));
+            var result = tryMapGet(target, arg(a, 1));
+            return result.found ? result.value : null;
         });
-        addSafeCallback('setPropertyFromClass', function(a) {
-            var cls:Dynamic = Type.resolveClass(stringArg(a, 0));
-            return cls == null ? false : setNested(cls, stringArg(a, 1), arg(a, 2));
+        addSafeCallback('setPropertyFromMap', function(a) {
+            var target:Dynamic = resolveObject(stringArg(a, 0));
+            if (!tryMapSet(target, arg(a, 1), arg(a, 2)))
+                throw 'setPropertyFromMap: mapa não encontrado: ' + stringArg(a, 0);
+            return arg(a, 2);
         });
 
         addSafeCallback('makeLuaSprite', function(a)
@@ -759,11 +771,10 @@ class PsychLuaManager
             camera.shake(floatArg(a, 1), floatArg(a, 2));
             return true;
         });
-        addSafeCallback('triggerEvent', function(a) {
-            if (PlayState.instance != null)
-                PlayState.instance.triggerEventNote(stringArg(a, 0), stringArg(a, 1), stringArg(a, 2));
-            return true;
-        });
+        addSafeCallback('triggerEvent', function(a)
+            return scriptTriggerEvent(stringArg(a, 0), stringArg(a, 1), stringArg(a, 2)));
+        addSafeCallback('triggerEventNote', function(a)
+            return scriptTriggerEvent(stringArg(a, 0), stringArg(a, 1), stringArg(a, 2)));
 
         addSafeCallback('getSongPosition', function(a) return Conductor.songPosition);
         addSafeCallback('getColorFromHex', function(a) return colorFromString(stringArg(a, 0)));
@@ -829,13 +840,22 @@ class PsychLuaManager
             }
             catch (e:Dynamic)
             {
-                trace('[PsychLua callback] ' + name + ': ' + errorText(e));
-                return null;
+                // sendErrorsToLua converte a exceção em LuaL.error. O xpcall
+                // do bootstrap acrescenta o traceback com arquivo e linha.
+                throw name + ': ' + errorText(e);
             }
         });
 
         Lua_helper.add_callback(lua, name, wrapped);
         callbackNames.push(name);
+    }
+
+    static function findScriptById(id:Int):PsychLua
+    {
+        for (script in scripts)
+            if (script != null && script.id == id)
+                return script;
+        return null;
     }
 
     // ---------------------------------------------------------------------
@@ -846,30 +866,45 @@ class PsychLuaManager
     {
         if (name == null) return null;
         var id:String = name.trim();
+        if (id.length == 0) return null;
         if (luaSprites.exists(id)) return luaSprites.get(id);
         if (luaTexts.exists(id)) return luaTexts.get(id);
+        if (KadeshStageData.current != null)
+        {
+            var stageObject:Dynamic = KadeshStageData.current.getObject(id);
+            if (stageObject != null) return stageObject;
+        }
 
         switch (id)
         {
             case 'boyfriend' | 'bf': return PlayState.boyfriend;
             case 'dad' | 'opponent': return PlayState.dad;
             case 'gf' | 'girlfriend': return PlayState.gf;
-            // A Kade não possui os três grupos da Psych; aliases apontam para
-            // os personagens correspondentes para scripts simples.
+            // A Kade não possui os grupos da Psych; aliases apontam para os
+            // próprios personagens e preservam x/y/alpha/visible.
             case 'boyfriendGroup': return PlayState.boyfriend;
             case 'dadGroup': return PlayState.dad;
             case 'gfGroup': return PlayState.gf;
-            case 'camGame': return FlxG.camera;
-            case 'camHUD': return PlayState.instance == null ? null : PlayState.instance.camHUD;
+            case 'camGame' | 'gameCam': return FlxG.camera;
+            case 'camHUD' | 'camOther' | 'hudCam': return PlayState.instance == null ? null : PlayState.instance.camHUD;
             case 'notes': return PlayState.instance == null ? null : PlayState.instance.notes;
             case 'unspawnNotes': return PlayState.instance == null ? null : PlayState.instance.unspawnNotes;
             case 'eventNotes': return PlayState.instance == null ? null : PlayState.instance.eventNotes;
             case 'playerStrums': return PlayState.playerStrums;
             case 'opponentStrums' | 'cpuStrums': return PlayState.cpuStrums;
             case 'strumLineNotes': return PlayState.strumLineNotes;
+            case 'healthBar': return PlayState.instance == null ? null : PlayState.instance.healthBar;
+            case 'healthBarBG': return PlayState.instance == null ? null : PlayState.instance.healthBarBG;
+            case 'iconP1': return PlayState.instance == null ? null : PlayState.instance.iconP1;
+            case 'iconP2': return PlayState.instance == null ? null : PlayState.instance.iconP2;
+            case 'scoreTxt': return PlayState.instance == null ? null : PlayState.instance.scoreTxt;
+            case 'vocals': return PlayState.instance == null ? null : PlayState.instance.vocals;
             default:
-                if (PlayState.instance != null && Reflect.hasField(PlayState.instance, id))
-                    return Reflect.getProperty(PlayState.instance, id);
+                if (PlayState.instance != null)
+                {
+                    var result = safeGetProperty(PlayState.instance, id);
+                    if (result.found) return result.value;
+                }
         }
         return null;
     }
@@ -880,8 +915,65 @@ class PsychLuaManager
         var result:String = path.trim();
         var bracket:EReg = ~/\[([0-9]+)\]/g;
         result = bracket.replace(result, '.$1');
+        var quotedBracket:EReg = ~/\[['\"]([^'\"]+)['\"]\]/g;
+        result = quotedBracket.replace(result, '.$1');
         while (result.startsWith('.')) result = result.substr(1);
+        while (result.indexOf('..') != -1) result = result.replace('..', '.');
         return result;
+    }
+
+    public static function scriptGetProperty(path:String):Dynamic
+    {
+        return getPropertyPath(path);
+    }
+
+    public static function scriptSetProperty(path:String, value:Dynamic):Dynamic
+    {
+        if (!setPropertyPath(path, value))
+            throw 'setProperty: propriedade não encontrada ou não gravável: "' + path + '"';
+        return value;
+    }
+
+    public static function scriptGetPropertyFromGroup(group:String, index:Int, field:String):Dynamic
+    {
+        var member:Dynamic = getGroupMember(group, index, true);
+        return member == null ? null : getNested(member, field);
+    }
+
+    public static function scriptSetPropertyFromGroup(group:String, index:Int, field:String, value:Dynamic):Dynamic
+    {
+        var member:Dynamic = getGroupMember(group, index, true);
+        if (member == null || !setNested(member, field, value))
+            throw 'setPropertyFromGroup: ' + group + '[' + index + '].' + field + ' não existe.';
+        return value;
+    }
+
+    public static function scriptGetPropertyFromClass(className:String, field:String):Dynamic
+    {
+        var cls:Dynamic = resolveClass(className);
+        return cls == null ? null : getNested(cls, field);
+    }
+
+    public static function scriptSetPropertyFromClass(className:String, field:String, value:Dynamic):Dynamic
+    {
+        var cls:Dynamic = resolveClass(className);
+        if (cls == null || !setNested(cls, field, value))
+            throw 'setPropertyFromClass: ' + className + '.' + field + ' não existe.';
+        return value;
+    }
+
+    static function resolveClass(name:String):Dynamic
+    {
+        if (name == null) return null;
+        switch (name.trim())
+        {
+            case 'FlxG' | 'flixel.FlxG': return Type.resolveClass('flixel.FlxG');
+            case 'PlayState': return PlayState;
+            case 'Conductor': return Conductor;
+            case 'Main': return Main;
+            case 'Paths': return Paths;
+            default: return Type.resolveClass(name);
+        }
     }
 
     static function getPropertyPath(path:String):Dynamic
@@ -890,8 +982,15 @@ class PsychLuaManager
         if (normalized.length == 0) return null;
         var parts:Array<String> = normalized.split('.');
         var first:String = parts[0];
-        var root:Dynamic = resolveObject(first);
 
+        // Uma propriedade simples como "health" pertence à PlayState.
+        if (parts.length == 1 && PlayState.instance != null)
+        {
+            var direct = safeGetProperty(PlayState.instance, first);
+            if (direct.found) return direct.value;
+        }
+
+        var root:Dynamic = resolveObject(first);
         if (root != null)
         {
             parts.shift();
@@ -904,11 +1003,15 @@ class PsychLuaManager
     static function setPropertyPath(path:String, value:Dynamic):Bool
     {
         var normalized:String = normalizePropertyPath(path);
-        if (normalized.length == 0) return false;
+        if (normalized.length == 0 || PlayState.instance == null) return false;
         var parts:Array<String> = normalized.split('.');
         var first:String = parts[0];
-        var root:Dynamic = resolveObject(first);
 
+        // Corrige o caso mais comum da Psych: setProperty('health', 2).
+        if (parts.length == 1 && propertyExists(PlayState.instance, first))
+            return safeSetProperty(PlayState.instance, first, value);
+
+        var root:Dynamic = resolveObject(first);
         if (root != null)
         {
             parts.shift();
@@ -916,7 +1019,7 @@ class PsychLuaManager
             return setNested(root, parts.join('.'), value);
         }
 
-        return PlayState.instance != null && setNested(PlayState.instance, normalized, value);
+        return setNested(PlayState.instance, normalized, value);
     }
 
     static function getNested(root:Dynamic, path:String):Dynamic
@@ -927,21 +1030,35 @@ class PsychLuaManager
         for (field in normalizePropertyPath(path).split('.'))
         {
             if (current == null) return null;
-            if (field == 'length' && hasLength(current))
+            if (field == 'length')
             {
-                current = current.length;
+                var length:Null<Int> = dynamicLength(current);
+                if (length == null) return null;
+                current = length;
                 continue;
             }
+
             var index:Null<Int> = Std.parseInt(field);
-            if (index != null && hasLength(current))
+            if (index != null)
             {
-                if (index < 0 || index >= current.length) return null;
-                current = current[index];
+                current = getIndexed(current, index);
+                continue;
             }
-            else if (Reflect.hasField(current, field))
-                current = Reflect.getProperty(current, field);
-            else
-                return null;
+
+            var found = safeGetProperty(current, field);
+            if (found.found)
+            {
+                current = found.value;
+                continue;
+            }
+
+            var mapValue = tryMapGet(current, field);
+            if (mapValue.found)
+            {
+                current = mapValue.value;
+                continue;
+            }
+            return null;
         }
         return current;
     }
@@ -955,20 +1072,141 @@ class PsychLuaManager
         if (parent == null) return false;
 
         var index:Null<Int> = Std.parseInt(field);
-        if (index != null && hasLength(parent))
-        {
-            if (index < 0 || index >= parent.length) return false;
-            parent[index] = value;
-            return true;
-        }
+        if (index != null)
+            return setIndexed(parent, index, value);
 
-        Reflect.setProperty(parent, field, value);
-        return true;
+        if (propertyExists(parent, field))
+            return safeSetProperty(parent, field, value);
+
+        if (tryMapSet(parent, field, value))
+            return true;
+
+        return safeSetProperty(parent, field, value);
     }
 
-    static function hasLength(value:Dynamic):Bool
+    static function safeGetProperty(object:Dynamic, field:String):{found:Bool, value:Dynamic}
     {
-        return value != null && Reflect.hasField(value, 'length');
+        if (object == null || field == null) return {found: false, value: null};
+        try
+        {
+            if (Reflect.hasField(object, field))
+                return {found: true, value: Reflect.getProperty(object, field)};
+            var value:Dynamic = Reflect.getProperty(object, field);
+            if (value != null)
+                return {found: true, value: value};
+        }
+        catch (e:Dynamic) {}
+        return {found: false, value: null};
+    }
+
+    static function propertyExists(object:Dynamic, field:String):Bool
+    {
+        if (object == null || field == null || field.length == 0) return false;
+        try
+        {
+            if (Reflect.hasField(object, field)) return true;
+
+            var objectClass:Class<Dynamic> = Type.getClass(object);
+            if (objectClass != null && Type.getInstanceFields(objectClass).indexOf(field) >= 0)
+                return true;
+
+            try
+            {
+                var staticFields:Array<String> = Type.getClassFields(cast object);
+                if (staticFields != null && staticFields.indexOf(field) >= 0)
+                    return true;
+            }
+            catch (ignored:Dynamic) {}
+        }
+        catch (e:Dynamic) {}
+        return false;
+    }
+
+    static function safeSetProperty(object:Dynamic, field:String, value:Dynamic):Bool
+    {
+        if (object == null || field == null || field.length == 0) return false;
+        try
+        {
+            Reflect.setProperty(object, field, value);
+            return true;
+        }
+        catch (e:Dynamic) {}
+        return false;
+    }
+
+    static function dynamicLength(value:Dynamic):Null<Int>
+    {
+        if (value == null) return null;
+        try
+        {
+            var length:Dynamic = Reflect.getProperty(value, 'length');
+            if (length != null) return Std.int(length);
+        }
+        catch (e:Dynamic) {}
+        return null;
+    }
+
+    static function getIndexed(value:Dynamic, index:Int):Dynamic
+    {
+        var length:Null<Int> = dynamicLength(value);
+        if (length == null || index < 0 || index >= length) return null;
+        try
+        {
+            return untyped value[index];
+        }
+        catch (e:Dynamic)
+        {
+            return null;
+        }
+    }
+
+    static function setIndexed(value:Dynamic, index:Int, newValue:Dynamic):Bool
+    {
+        var length:Null<Int> = dynamicLength(value);
+        if (length == null || index < 0 || index >= length) return false;
+        try
+        {
+            untyped value[index] = newValue;
+            return true;
+        }
+        catch (e:Dynamic)
+        {
+            return false;
+        }
+    }
+
+    static function tryMapGet(object:Dynamic, key:Dynamic):{found:Bool, value:Dynamic}
+    {
+        if (object == null) return {found: false, value: null};
+        try
+        {
+            var exists:Dynamic = Reflect.getProperty(object, 'exists');
+            var get:Dynamic = Reflect.getProperty(object, 'get');
+            if (Reflect.isFunction(get))
+            {
+                if (Reflect.isFunction(exists) && !Reflect.callMethod(object, exists, [key]))
+                    return {found: false, value: null};
+                return {found: true, value: Reflect.callMethod(object, get, [key])};
+            }
+        }
+        catch (e:Dynamic) {}
+        return {found: false, value: null};
+    }
+
+    static function tryMapSet(object:Dynamic, key:Dynamic, value:Dynamic):Bool
+    {
+        if (object == null) return false;
+        try
+        {
+            var set:Dynamic = Reflect.getProperty(object, 'set');
+            if (Reflect.isFunction(set))
+            {
+                Reflect.callMethod(object, set, [key, value]);
+                return true;
+            }
+        }
+        catch (e:Dynamic) {}
+        return false;
     }
 
     static function getGroupMember(group:String, index:Int, allowArray:Bool):Dynamic
@@ -976,13 +1214,12 @@ class PsychLuaManager
         var target:Dynamic = resolveObject(group);
         if (target == null) return null;
 
-        var members:Dynamic = Reflect.hasField(target, 'members')
-            ? Reflect.getProperty(target, 'members')
-            : (allowArray && hasLength(target) ? target : null);
+        var membersResult = safeGetProperty(target, 'members');
+        var members:Dynamic = membersResult.found
+            ? membersResult.value
+            : (allowArray && dynamicLength(target) != null ? target : null);
 
-        if (members == null || index < 0 || index >= members.length)
-            return null;
-        return members[index];
+        return members == null ? null : getIndexed(members, index);
     }
 
     // ---------------------------------------------------------------------
@@ -1217,7 +1454,7 @@ class PsychLuaManager
             onComplete: function(_:FlxTween)
             {
                 luaTweens.remove(tag);
-                callOnLuas('onTweenCompleted', [tag], true);
+                dispatchSharedCallback('onTweenCompleted', [tag]);
             }
         });
         luaTweens.set(tag, tween);
@@ -1239,7 +1476,7 @@ class PsychLuaManager
             onComplete: function(_:FlxTween)
             {
                 luaTweens.remove(tag);
-                callOnLuas('onTweenCompleted', [tag], true);
+                dispatchSharedCallback('onTweenCompleted', [tag]);
             }
         });
         luaTweens.set(tag, tween);
@@ -1256,11 +1493,19 @@ class PsychLuaManager
             onComplete: function(_:FlxTween)
             {
                 luaTweens.remove(tag);
-                callOnLuas('onTweenCompleted', [tag], true);
+                dispatchSharedCallback('onTweenCompleted', [tag]);
             }
         });
         luaTweens.set(tag, tween);
         return true;
+    }
+
+    static function dispatchSharedCallback(functionName:String, args:Array<Dynamic>):Void
+    {
+        callOnLuas(functionName, args, true);
+        #if HSCRIPT_ALLOWED
+        PsychHScriptManager.callOnHScripts(functionName, args, true);
+        #end
     }
 
     public static function cancelTween(tag:String):Bool
@@ -1279,7 +1524,7 @@ class PsychLuaManager
         var timer:FlxTimer = new FlxTimer().start(Math.max(0.0001, time), function(active:FlxTimer)
         {
             var loopsLeft:Int = active.loopsLeft;
-            callOnLuas('onTimerCompleted', [tag, active.elapsedLoops, loopsLeft], true);
+            dispatchSharedCallback('onTimerCompleted', [tag, active.elapsedLoops, loopsLeft]);
             if (active.finished) luaTimers.remove(tag);
         }, totalLoops);
         luaTimers.set(tag, timer);
@@ -1305,7 +1550,7 @@ class PsychLuaManager
             var flxSound:FlxSound = FlxG.sound.play(audio, volume, false, null, true, function()
             {
                 if (tag != null && tag.length > 0) luaSounds.remove(tag);
-                callOnLuas('onSoundFinished', [tag == null ? '' : tag], true);
+                dispatchSharedCallback('onSoundFinished', [tag == null ? '' : tag]);
             });
             if (tag != null && tag.length > 0) luaSounds.set(tag, flxSound);
             return true;
@@ -1392,6 +1637,213 @@ class PsychLuaManager
     // ---------------------------------------------------------------------
     // Encerramento seguro
     // ---------------------------------------------------------------------
+
+    // ---------------------------------------------------------------------
+    // API pública compartilhada com HScript
+    // ---------------------------------------------------------------------
+
+    public static function scriptLuaSpriteExists(tag:String):Bool
+    {
+        return tag != null && luaSprites.exists(tag);
+    }
+
+    public static function scriptLuaTextExists(tag:String):Bool
+    {
+        return tag != null && luaTexts.exists(tag);
+    }
+
+    public static function scriptGetPropertyFromMap(mapName:String, key:Dynamic):Dynamic
+    {
+        var result = tryMapGet(resolveObject(mapName), key);
+        return result.found ? result.value : null;
+    }
+
+    public static function scriptSetPropertyFromMap(mapName:String, key:Dynamic, value:Dynamic):Dynamic
+    {
+        if (!tryMapSet(resolveObject(mapName), key, value))
+            throw 'setPropertyFromMap: mapa não encontrado: ' + mapName;
+        return value;
+    }
+
+    public static function scriptRemoveFromGroup(group:String, index:Int, dontDestroy:Bool):Bool
+    {
+        var target:Dynamic = resolveObject(group);
+        if (target == null) return false;
+        var member:Dynamic = getGroupMember(group, index, true);
+        if (member == null) return false;
+        try
+        {
+            var remove:Dynamic = Reflect.getProperty(target, 'remove');
+            if (Reflect.isFunction(remove))
+                Reflect.callMethod(target, remove, [member, true]);
+            if (!dontDestroy)
+            {
+                var destroy:Dynamic = Reflect.getProperty(member, 'destroy');
+                if (Reflect.isFunction(destroy)) Reflect.callMethod(member, destroy, []);
+            }
+            return true;
+        }
+        catch (e:Dynamic) { return false; }
+    }
+
+    public static function scriptSetGraphicSize(tag:String, width:Int, height:Int, update:Bool):Bool
+    {
+        var sprite:FlxSprite = cast resolveObject(tag);
+        if (sprite == null) return false;
+        sprite.setGraphicSize(width, height);
+        if (update) sprite.updateHitbox();
+        return true;
+    }
+
+    public static function scriptUpdateHitbox(tag:String):Bool
+    {
+        var sprite:FlxSprite = cast resolveObject(tag);
+        if (sprite == null) return false;
+        sprite.updateHitbox();
+        return true;
+    }
+
+    public static function scriptScreenCenter(tag:String, axes:String):Bool
+    {
+        var sprite:FlxSprite = cast resolveObject(tag);
+        if (sprite == null) return false;
+        var parsed:String = axes == null ? 'xy' : axes.toLowerCase();
+        sprite.screenCenter(parsed == 'x' ? FlxAxes.X : parsed == 'y' ? FlxAxes.Y : FlxAxes.XY);
+        return true;
+    }
+
+    public static function scriptSetBlendMode(tag:String, blend:String):Bool
+    {
+        return setBlendMode(tag, blend);
+    }
+
+    public static function scriptMakeGraphic(tag:String, width:Int, height:Int, color:String):Bool
+    {
+        var sprite:FlxSprite = cast resolveObject(tag);
+        if (sprite == null) return false;
+        sprite.makeGraphic(Std.int(Math.max(1, width)), Std.int(Math.max(1, height)), colorFromString(color));
+        return true;
+    }
+
+    public static function scriptAddAnimationByPrefix(tag:String, name:String, prefix:String, fps:Int, loop:Bool):Bool
+    {
+        var sprite:FlxSprite = cast resolveObject(tag);
+        if (sprite == null) return false;
+        sprite.animation.addByPrefix(name, prefix, fps, loop);
+        return true;
+    }
+
+    public static function scriptAddAnimationByIndices(tag:String, name:String, prefix:String, indices:Dynamic, fps:Int, loop:Bool):Bool
+    {
+        var sprite:FlxSprite = cast resolveObject(tag);
+        if (sprite == null) return false;
+        sprite.animation.addByIndices(name, prefix, parseIndices(indices), '', fps, loop);
+        return true;
+    }
+
+    public static function scriptPlayAnimation(tag:String, name:String, force:Bool, reverse:Bool, frame:Int):Bool
+    {
+        return playAnimation(tag, name, force, reverse, frame);
+    }
+
+    public static function scriptSetObjectCamera(tag:String, cameraName:String):Bool
+    {
+        var object:Dynamic = resolveObject(tag);
+        var camera:FlxCamera = getCamera(cameraName);
+        if (object == null || camera == null) return false;
+        try
+        {
+            Reflect.setProperty(object, 'cameras', [camera]);
+            return true;
+        }
+        catch (e:Dynamic)
+        {
+            return false;
+        }
+    }
+
+    public static function scriptSetScrollFactor(tag:String, x:Float, y:Float):Bool
+    {
+        var sprite:FlxSprite = cast resolveObject(tag);
+        if (sprite == null) return false;
+        sprite.scrollFactor.set(x, y);
+        return true;
+    }
+
+    public static function scriptScaleObject(tag:String, x:Float, y:Float, updateHitbox:Bool):Bool
+    {
+        var sprite:FlxSprite = cast resolveObject(tag);
+        if (sprite == null) return false;
+        sprite.scale.set(x, y);
+        if (updateHitbox) sprite.updateHitbox();
+        return true;
+    }
+
+    public static function scriptMakeText(tag:String, text:String, width:Float, x:Float, y:Float):Bool
+    {
+        return makeText(tag, text, width, x, y);
+    }
+
+    public static function scriptAddText(tag:String, front:Bool):Bool
+    {
+        return addText(tag, front);
+    }
+
+    public static function scriptRemoveText(tag:String, destroy:Bool):Bool
+    {
+        return removeText(tag, destroy);
+    }
+
+    public static function scriptSetTextString(tag:String, value:String):Bool
+    {
+        var text:FlxText = luaTexts.get(tag);
+        if (text == null) return false;
+        text.text = value;
+        return true;
+    }
+
+    public static function scriptSetTextSize(tag:String, value:Int):Bool
+    {
+        var text:FlxText = luaTexts.get(tag);
+        if (text == null) return false;
+        text.size = value;
+        return true;
+    }
+
+    public static function scriptSetTextColor(tag:String, value:String):Bool
+    {
+        var text:FlxText = luaTexts.get(tag);
+        if (text == null) return false;
+        text.color = colorFromString(value);
+        return true;
+    }
+
+    public static function scriptCameraFlash(cameraName:String, color:String, duration:Float, forced:Bool):Bool
+    {
+        var camera:FlxCamera = getCamera(cameraName);
+        if (camera == null) return false;
+        camera.flash(colorFromString(color), duration, null, forced);
+        return true;
+    }
+
+    public static function scriptCameraShake(cameraName:String, intensity:Float, duration:Float):Bool
+    {
+        var camera:FlxCamera = getCamera(cameraName);
+        if (camera == null) return false;
+        camera.shake(intensity, duration);
+        return true;
+    }
+
+    public static function scriptTriggerEvent(name:String, value1:String, value2:String):Bool
+    {
+        if (PlayState.instance == null) return false;
+        PlayState.instance.triggerEventNote(
+            name == null ? '' : name,
+            value1 == null ? '' : value1,
+            value2 == null ? '' : value2
+        );
+        return true;
+    }
 
     static function closeCurrentScript():Void
     {

@@ -74,6 +74,7 @@ class PlayState extends MusicBeatState
 	public static var instance:PlayState = null;
 
 	public static var curStage:String = '';
+	public static var externalStageData:KadeshStageData = null;
 	public static var SONG:SwagSong;
 	// Nome escolhido no Freeplay, usado para salvar e ler o mesmo score.
 	public static var scoreSongName:String = null;
@@ -328,6 +329,9 @@ class PlayState extends MusicBeatState
 		FlxG.cameras.reset(camGame);
 		FlxG.cameras.add(camHUD);
 
+		// Ativa cedo para erros de stage JSON/Lua/HScript aparecerem em vermelho.
+		KadeshScriptDebug.attach(this, camHUD);
+
 		FlxCamera.defaultCameras = [camGame];
 
 		persistentUpdate = true;
@@ -384,7 +388,17 @@ class PlayState extends MusicBeatState
 			}
 		} else {stageCheck = SONG.stage;}
 
-		if (!PlayStateChangeables.Optimize)
+		// Stage JSON é somente um override opcional do mods folder. Se falhar,
+		// o switch antigo da Kade continua sendo usado normalmente.
+		externalStageData = PlayStateChangeables.Optimize ? null : KadeshStageData.load(stageCheck);
+		if (externalStageData != null)
+		{
+			curStage = stageCheck;
+			defaultCamZoom = externalStageData.defaultZoom();
+			externalStageData.addBack(this);
+		}
+
+		if (!PlayStateChangeables.Optimize && externalStageData == null)
 		{
 
 		switch(stageCheck)
@@ -792,13 +806,28 @@ class PlayState extends MusicBeatState
 				curGf = 'gf';
 		}
 		
-		gf = new Character(400, 130, curGf);
-		gf.scrollFactor.set(0.95, 0.95);
+		var gfPosition:Array<Float> = externalStageData == null ? [400, 130] : externalStageData.girlfriendPosition();
+		var dadPosition:Array<Float> = externalStageData == null ? [100, 100] : externalStageData.opponentPosition();
+		var bfPosition:Array<Float> = externalStageData == null ? [770, 450] : externalStageData.boyfriendPosition();
 
-		dad = new Character(100, 100, SONG.player2);
+		gf = new Character(gfPosition[0], gfPosition[1], curGf);
+		gf.scrollFactor.set(0.95, 0.95);
+		if (externalStageData != null && externalStageData.hideGirlfriend())
+			gf.visible = false;
+
+		dad = new Character(dadPosition[0], dadPosition[1], SONG.player2);
 
 		var camPos:FlxPoint = new FlxPoint(dad.getGraphicMidpoint().x, dad.getGraphicMidpoint().y);
+		if (externalStageData != null)
+		{
+			var initialCamera:Array<Float> = externalStageData.opponentCamera();
+			camPos.x += initialCamera[0];
+			camPos.y += initialCamera[1];
+		}
 
+		// Os offsets antigos existem para os personagens/stages hardcoded da Kade.
+		// Um stage JSON já fornece posições e câmeras exatas.
+		if (externalStageData == null)
 		switch (SONG.player2)
 		{
 			case 'gf':
@@ -839,9 +868,10 @@ class PlayState extends MusicBeatState
 
 
 		
-		boyfriend = new Boyfriend(770, 450, SONG.player1);
+		boyfriend = new Boyfriend(bfPosition[0], bfPosition[1], SONG.player1);
 
-		// REPOSITIONING PER STAGE
+		// REPOSITIONING PER STAGE. Stage JSON já fornece posições próprias.
+		if (externalStageData == null)
 		switch (curStage)
 		{
 			case 'limo':
@@ -885,11 +915,13 @@ class PlayState extends MusicBeatState
 			add(gf);
 
 			// Shitty layering but whatev it works LOL
-			if (curStage == 'limo')
+			if (curStage == 'limo' && externalStageData == null)
 				add(limo);
 
 			add(dad);
 			add(boyfriend);
+			if (externalStageData != null)
+				externalStageData.addFront(this);
 		}
 
 
@@ -953,7 +985,8 @@ class PlayState extends MusicBeatState
 
 		add(camFollow);
 
-		FlxG.camera.follow(camFollow, LOCKON, 0.04 * (30 / (cast (Lib.current.getChildAt(0), Main)).getFPS()));
+		var stageCameraSpeed:Float = externalStageData == null ? 1 : externalStageData.cameraSpeed();
+		FlxG.camera.follow(camFollow, LOCKON, 0.04 * stageCameraSpeed * (30 / (cast (Lib.current.getChildAt(0), Main)).getFPS()));
 		// FlxG.camera.setScrollBounds(0, FlxG.width, 0, FlxG.height);
 		FlxG.camera.zoom = defaultCamZoom;
 		FlxG.camera.focusOn(camFollow.getPosition());
@@ -1039,6 +1072,15 @@ class PlayState extends MusicBeatState
 		botPlayState.borderQuality = 2;
 		if(PlayStateChangeables.botPlay && !loadRep) add(botPlayState);
 
+		// Caixa de erros vermelha e runtimes de softcode. A inicialização vem
+		// antes dos ícones para characters/<nome>.hx poder trocar healthIcon.
+		#if LUA_ALLOWED
+		PsychLuaManager.initialize();
+		#end
+		#if HSCRIPT_ALLOWED
+		PsychHScriptManager.initialize();
+		#end
+
 		iconP1 = new HealthIcon(boyfriend.healthIcon, true);
 		iconP1.y = healthBar.y - (iconP1.height / 2);
 		add(iconP1);
@@ -1075,10 +1117,10 @@ class PlayState extends MusicBeatState
 		startingSong = true;
 
 		#if LUA_ALLOWED
-		// Lua é opcional. Qualquer erro de inicialização é tratado pelo manager e
-		// não deve impedir a música de começar no Android ou no PC.
-		PsychLuaManager.initialize();
 		PsychLuaManager.callOnLuas('onCreatePost', [], true);
+		#end
+		#if HSCRIPT_ALLOWED
+		PsychHScriptManager.callOnHScripts('onCreatePost', [], true);
 		#end
 		
 		trace('starting');
@@ -1238,10 +1280,16 @@ class PlayState extends MusicBeatState
 
 	function startCountdown():Void
 	{
+		var stopCountdown:Bool = false;
 		#if LUA_ALLOWED
 		if (PsychLuaManager.callOnLuas('onStartCountdown', []) == PsychLua.Function_Stop)
-			return;
+			stopCountdown = true;
 		#end
+		#if HSCRIPT_ALLOWED
+		if (PsychHScriptManager.callOnHScripts('onStartCountdown', []) == PsychHScript.Function_Stop)
+			stopCountdown = true;
+		#end
+		if (stopCountdown) return;
 
 		inCutscene = false;
 
@@ -1369,6 +1417,9 @@ class PlayState extends MusicBeatState
 			#if LUA_ALLOWED
 			PsychLuaManager.callOnLuas('onCountdownTick', [swagCounter], true);
 			#end
+			#if HSCRIPT_ALLOWED
+			PsychHScriptManager.callOnHScripts('onCountdownTick', [swagCounter], true);
+			#end
 			swagCounter += 1;
 			// generateSong('fresh');
 		}, 5);
@@ -1478,6 +1529,9 @@ class PlayState extends MusicBeatState
 
 		#if LUA_ALLOWED
 		PsychLuaManager.callOnLuas('onSongStart', [], true);
+		#end
+		#if HSCRIPT_ALLOWED
+		PsychHScriptManager.callOnHScripts('onSongStart', [], true);
 		#end
 
 		if (FlxG.save.data.songPosition)
@@ -1590,9 +1644,10 @@ class PlayState extends MusicBeatState
 		if (value2 == null)
 			value2 = '';
 
-		switch (eventName.trim())
+		var eventKey:String = eventName.trim().toLowerCase();
+		switch (eventKey)
 		{
-			case 'Hey!':
+			case 'hey!':
 				var target:Int = 2;
 				switch (value1.toLowerCase().trim())
 				{
@@ -1615,11 +1670,11 @@ class PlayState extends MusicBeatState
 						gf.playSpecialAnim('hey', duration);
 				}
 
-			case 'Set GF Speed':
+			case 'set gf speed':
 				var newGfSpeed:Null<Int> = Std.parseInt(value1.trim());
 				gfSpeed = newGfSpeed == null || newGfSpeed < 1 ? 1 : newGfSpeed;
 
-			case 'Add Camera Zoom':
+			case 'add camera zoom':
 				var gameZoom:Float = parseEventFloat(value1, 0.015);
 				var hudZoom:Float = parseEventFloat(value2, 0.03);
 
@@ -1629,7 +1684,7 @@ class PlayState extends MusicBeatState
 					camHUD.zoom = clampHudZoom(camHUD.zoom + hudZoom);
 				}
 
-			case 'Set Camera Zoom' | 'Set Cam Zoom':
+			case 'set camera zoom' | 'set cam zoom' | 'camera zoom':
 				// Extensão segura da Kadesh. Psych 0.6.3 não possui este evento.
 				// Value 1 = zoom base do jogo; Value 2 = duração do tween.
 				// O HUD não é alterado, evitando a interface minúscula do print.
@@ -1641,7 +1696,7 @@ class PlayState extends MusicBeatState
 				else
 					FlxTween.tween(FlxG.camera, {zoom: requestedZoom}, zoomDuration, {ease: FlxEase.linear});
 
-			case 'Set HUD Zoom':
+			case 'set hud zoom':
 				var requestedHudZoom:Float = clampHudZoom(parseEventFloat(value1, 1));
 				var hudDuration:Float = Math.max(0, parseEventFloat(value2, 0));
 				if (hudDuration <= 0)
@@ -1649,12 +1704,12 @@ class PlayState extends MusicBeatState
 				else
 					FlxTween.tween(camHUD, {zoom: requestedHudZoom}, hudDuration, {ease: FlxEase.linear});
 
-			case 'Play Animation':
+			case 'play animation':
 				var animationCharacter:Character = getEventCharacter(value2);
 				if (animationCharacter != null)
 					animationCharacter.playSpecialAnim(value1.trim(), 0);
 
-			case 'Camera Follow Pos':
+			case 'camera follow pos' | 'camera follow position':
 				// Semântica da Psych 0.6.3: qualquer coordenada numérica força
 				// a câmera; ambos vazios liberam o acompanhamento.
 				var parsedX:Float = Std.parseFloat(value1);
@@ -1672,20 +1727,35 @@ class PlayState extends MusicBeatState
 					isCameraOnForcedPos = true;
 				}
 
-			case 'Alt Idle Animation':
+			case 'camera set target':
+				var cameraTarget:Character = getEventCharacter(value1);
+				if (cameraTarget != null)
+				{
+					var cameraOffset:Array<Float> = [0, 0];
+					if (externalStageData != null)
+					{
+						if (cameraTarget == boyfriend) cameraOffset = externalStageData.boyfriendCamera();
+						else if (cameraTarget == gf) cameraOffset = externalStageData.girlfriendCamera();
+						else cameraOffset = externalStageData.opponentCamera();
+					}
+					camFollow.setPosition(cameraTarget.getMidpoint().x + cameraOffset[0], cameraTarget.getMidpoint().y + cameraOffset[1]);
+					isCameraOnForcedPos = true;
+				}
+
+			case 'alt idle animation':
 				var idleCharacter:Character = getEventCharacter(value1);
 				if (idleCharacter != null)
 					idleCharacter.setIdleSuffix(value2);
 
-			case 'Screen Shake':
+			case 'screen shake':
 				applyCameraShake(FlxG.camera, value1);
 				applyCameraShake(camHUD, value2);
 
-			case 'Change Character':
+			case 'change character':
 				var characterType:Int = parseCharacterType(value1);
 				changeEventCharacter(characterType, value2.trim());
 
-			case 'Change Scroll Speed':
+			case 'change scroll speed':
 				var multiplier:Float = parseEventFloat(value1, 1);
 				var duration:Float = parseEventFloat(value2, 0);
 				var baseSpeed:Float = PlayStateChangeables.scrollSpeed == 1
@@ -1718,13 +1788,13 @@ class PlayState extends MusicBeatState
 				}
 
 			// Eventos específicos de músicas e Set Property não são executados.
-			case 'Dadbattle Spotlight'
-				| 'Blammed Lights'
-				| 'Philly Glow'
-				| 'Kill Henchmen'
-				| 'Trigger BG Ghouls'
-				| 'BG Freaks Expression'
-				| 'Set Property':
+			case 'dadbattle spotlight'
+				| 'blammed lights'
+				| 'philly glow'
+				| 'kill henchmen'
+				| 'trigger bg ghouls'
+				| 'bg freaks expression'
+				| 'set property':
 				trace('[KadeshEvent] Evento ignorado propositalmente: ' + eventName);
 
 			default:
@@ -1733,6 +1803,9 @@ class PlayState extends MusicBeatState
 
 		#if LUA_ALLOWED
 		PsychLuaManager.callOnLuas('onEvent', [eventName, value1, value2], true);
+		#end
+		#if HSCRIPT_ALLOWED
+		PsychHScriptManager.callOnHScripts('onEvent', [eventName, value1, value2], true);
 		#end
 	}
 
@@ -1752,9 +1825,15 @@ class PlayState extends MusicBeatState
 		var sectionIndex:Int = Std.int(Math.floor(curStep / 16));
 		if (sectionIndex < 0 || sectionIndex >= SONG.notes.length || SONG.notes[sectionIndex] == null) return;
 		if (SONG.notes[sectionIndex].mustHitSection)
-			camFollow.setPosition(boyfriend.getMidpoint().x - 100, boyfriend.getMidpoint().y - 100);
+		{
+			var bfCamera:Array<Float> = externalStageData == null ? [0, 0] : externalStageData.boyfriendCamera();
+			camFollow.setPosition(boyfriend.getMidpoint().x - 100 + bfCamera[0], boyfriend.getMidpoint().y - 100 + bfCamera[1]);
+		}
 		else
-			camFollow.setPosition(dad.getMidpoint().x + 150, dad.getMidpoint().y - 100);
+		{
+			var dadCamera:Array<Float> = externalStageData == null ? [0, 0] : externalStageData.opponentCamera();
+			camFollow.setPosition(dad.getMidpoint().x + 150 + dadCamera[0], dad.getMidpoint().y - 100 + dadCamera[1]);
+		}
 	}
 
 	function parseEventFloat(value:String, fallback:Float):Float
@@ -2488,6 +2567,10 @@ class PlayState extends MusicBeatState
 		PsychLuaManager.syncVariables();
 		PsychLuaManager.callOnLuas('onUpdate', [elapsed], true);
 		#end
+		#if HSCRIPT_ALLOWED
+		PsychHScriptManager.syncVariables();
+		PsychHScriptManager.callOnHScripts('onUpdate', [elapsed], true);
+		#end
 
 		#if !debug
 		perfectMode = false;
@@ -2834,7 +2917,7 @@ class PlayState extends MusicBeatState
 				luaModchart.setVar("mustHit",PlayState.SONG.notes[Std.int(curStep / 16)].mustHitSection);
 			#end
 
-			if (!isCameraOnForcedPos && camFollow.x != dad.getMidpoint().x + 150 && !PlayState.SONG.notes[Std.int(curStep / 16)].mustHitSection)
+			if (!isCameraOnForcedPos && !PlayState.SONG.notes[Std.int(curStep / 16)].mustHitSection)
 			{
 				var offsetX = 0;
 				var offsetY = 0;
@@ -2845,6 +2928,12 @@ class PlayState extends MusicBeatState
 					offsetY = luaModchart.getVar("followYOffset", "float");
 				}
 				#end
+				if (externalStageData != null)
+				{
+					var stageCamera:Array<Float> = externalStageData.opponentCamera();
+					offsetX += stageCamera[0];
+					offsetY += stageCamera[1];
+				}
 				camFollow.setPosition(dad.getMidpoint().x + 150 + offsetX, dad.getMidpoint().y - 100 + offsetY);
 				#if windows
 				if (luaModchart != null)
@@ -2868,7 +2957,7 @@ class PlayState extends MusicBeatState
 					vocals.volume = 1;
 			}
 
-			if (!isCameraOnForcedPos && PlayState.SONG.notes[Std.int(curStep / 16)].mustHitSection && camFollow.x != boyfriend.getMidpoint().x - 100)
+			if (!isCameraOnForcedPos && PlayState.SONG.notes[Std.int(curStep / 16)].mustHitSection)
 			{
 				var offsetX = 0;
 				var offsetY = 0;
@@ -2879,6 +2968,12 @@ class PlayState extends MusicBeatState
 					offsetY = luaModchart.getVar("followYOffset", "float");
 				}
 				#end
+				if (externalStageData != null)
+				{
+					var stageCamera:Array<Float> = externalStageData.boyfriendCamera();
+					offsetX += stageCamera[0];
+					offsetY += stageCamera[1];
+				}
 				camFollow.setPosition(boyfriend.getMidpoint().x - 100 + offsetX, boyfriend.getMidpoint().y - 100 + offsetY);
 
 				#if windows
@@ -2886,6 +2981,7 @@ class PlayState extends MusicBeatState
 					luaModchart.executeState('playerOneTurn', []);
 				#end
 
+				if (externalStageData == null)
 				switch (curStage)
 				{
 					case 'limo':
@@ -3095,6 +3191,9 @@ class PlayState extends MusicBeatState
 						#if LUA_ALLOWED
 						PsychLuaManager.callOnLuas('opponentNoteHit', [notes.members.indexOf(daNote), daNote.noteData, daNote.noteType, daNote.isSustainNote], true);
 						#end
+						#if HSCRIPT_ALLOWED
+						PsychHScriptManager.callOnHScripts('opponentNoteHit', [notes.members.indexOf(daNote), daNote.noteData, daNote.noteType, daNote.isSustainNote], true);
+						#end
 						if (FlxG.save.data.cpuStrums)
 						{
 							cpuStrums.forEach(function(spr:FlxSprite)
@@ -3221,6 +3320,10 @@ class PlayState extends MusicBeatState
 		#if LUA_ALLOWED
 		PsychLuaManager.syncVariables();
 		PsychLuaManager.callOnLuas('onUpdatePost', [elapsed], true);
+		#end
+		#if HSCRIPT_ALLOWED
+		PsychHScriptManager.syncVariables();
+		PsychHScriptManager.callOnHScripts('onUpdatePost', [elapsed], true);
 		#end
 	}
 
@@ -3967,12 +4070,24 @@ class PlayState extends MusicBeatState
 			#end
 
 
-			#if LUA_ALLOWED
 			if (daNote != null)
+			{
+				#if LUA_ALLOWED
 				PsychLuaManager.callOnLuas('noteMiss', [notes.members.indexOf(daNote), direction, daNote.noteType, daNote.isSustainNote], true);
+				#end
+				#if HSCRIPT_ALLOWED
+				PsychHScriptManager.callOnHScripts('noteMiss', [notes.members.indexOf(daNote), direction, daNote.noteType, daNote.isSustainNote], true);
+				#end
+			}
 			else
+			{
+				#if LUA_ALLOWED
 				PsychLuaManager.callOnLuas('noteMissPress', [direction], true);
-			#end
+				#end
+				#if HSCRIPT_ALLOWED
+				PsychHScriptManager.callOnHScripts('noteMissPress', [direction], true);
+				#end
+			}
 
 			updateAccuracy();
 		}
@@ -4145,6 +4260,9 @@ class PlayState extends MusicBeatState
 					#if LUA_ALLOWED
 					PsychLuaManager.callOnLuas('goodNoteHit', [notes.members.indexOf(note), note.noteData, note.noteType, note.isSustainNote], true);
 					#end
+					#if HSCRIPT_ALLOWED
+					PsychHScriptManager.callOnHScripts('goodNoteHit', [notes.members.indexOf(note), note.noteData, note.noteType, note.isSustainNote], true);
+					#end
 					vocals.volume = 1;
 		
 					note.kill();
@@ -4264,6 +4382,10 @@ class PlayState extends MusicBeatState
 		PsychLuaManager.syncVariables();
 		PsychLuaManager.callOnLuas('onStepHit', [], true);
 		#end
+		#if HSCRIPT_ALLOWED
+		PsychHScriptManager.syncVariables();
+		PsychHScriptManager.callOnHScripts('onStepHit', [], true);
+		#end
 		if (FlxG.sound.music.time > Conductor.songPosition + 20 || FlxG.sound.music.time < Conductor.songPosition - 20)
 		{
 			resyncVocals();
@@ -4300,6 +4422,12 @@ class PlayState extends MusicBeatState
 		PsychLuaManager.syncVariables();
 		PsychLuaManager.callOnLuas('onBeatHit', [], true);
 		#end
+		#if HSCRIPT_ALLOWED
+		PsychHScriptManager.syncVariables();
+		PsychHScriptManager.callOnHScripts('onBeatHit', [], true);
+		#end
+		if (externalStageData != null)
+			externalStageData.beatHit(curBeat);
 
 		if (generatedMusic)
 		{
@@ -4449,6 +4577,15 @@ class PlayState extends MusicBeatState
 		#if LUA_ALLOWED
 		PsychLuaManager.destroy();
 		#end
+		#if HSCRIPT_ALLOWED
+		PsychHScriptManager.destroy();
+		#end
+		if (externalStageData != null)
+		{
+			externalStageData.destroy();
+			externalStageData = null;
+		}
+		KadeshScriptDebug.destroy();
 		super.destroy();
 	}
 

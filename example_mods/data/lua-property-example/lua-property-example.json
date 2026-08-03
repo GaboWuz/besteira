@@ -1,0 +1,156 @@
+{
+  "song": {
+    "song": "Lua Property Example",
+    "notes": [
+      {
+        "sectionNotes": [
+          [
+            750,
+            0,
+            0,
+            ""
+          ],
+          [
+            1250,
+            1,
+            0,
+            ""
+          ],
+          [
+            1750,
+            2,
+            0,
+            ""
+          ],
+          [
+            2250,
+            3,
+            0,
+            ""
+          ]
+        ],
+        "lengthInSteps": 16,
+        "typeOfSection": 0,
+        "mustHitSection": true,
+        "gfSection": false,
+        "bpm": 120,
+        "changeBPM": false,
+        "altAnim": false
+      },
+      {
+        "sectionNotes": [
+          [
+            2750,
+            1,
+            0,
+            ""
+          ],
+          [
+            3250,
+            2,
+            0,
+            ""
+          ],
+          [
+            3750,
+            3,
+            0,
+            ""
+          ],
+          [
+            4250,
+            4,
+            0,
+            ""
+          ]
+        ],
+        "lengthInSteps": 16,
+        "typeOfSection": 0,
+        "mustHitSection": true,
+        "gfSection": false,
+        "bpm": 120,
+        "changeBPM": false,
+        "altAnim": false
+      },
+      {
+        "sectionNotes": [
+          [
+            4750,
+            2,
+            0,
+            ""
+          ],
+          [
+            5250,
+            3,
+            0,
+            ""
+          ],
+          [
+            5750,
+            4,
+            0,
+            ""
+          ],
+          [
+            6250,
+            5,
+            0,
+            ""
+          ]
+        ],
+        "lengthInSteps": 16,
+        "typeOfSection": 0,
+        "mustHitSection": true,
+        "gfSection": false,
+        "bpm": 120,
+        "changeBPM": false,
+        "altAnim": false
+      },
+      {
+        "sectionNotes": [
+          [
+            6750,
+            3,
+            0,
+            ""
+          ],
+          [
+            7250,
+            4,
+            0,
+            ""
+          ],
+          [
+            7750,
+            5,
+            0,
+            ""
+          ],
+          [
+            8250,
+            6,
+            0,
+            ""
+          ]
+        ],
+        "lengthInSteps": 16,
+        "typeOfSection": 0,
+        "mustHitSection": true,
+        "gfSection": false,
+        "bpm": 120,
+        "changeBPM": false,
+        "altAnim": false
+      }
+    ],
+    "events": [],
+    "bpm": 120,
+    "needsVoices": false,
+    "speed": 1,
+    "player1": "bf",
+    "player2": "dad",
+    "gfVersion": "gf",
+    "stage": "stage",
+    "validScore": true
+  }
+}

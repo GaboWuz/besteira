@@ -318,7 +318,11 @@ class AndroidStorage
 			"Ícones Psych: mods/images/icons/icon-nome.png\n" +
 			"Lua global: mods/scripts/arquivo.lua\n" +
 			"Lua da música: mods/data/nome-da-musica/script.lua\n" +
-			"Lua de personagem: mods/characters/personagem.lua\n");
+			"Lua de personagem: mods/characters/personagem.lua\n" +
+			"Stage JSON/HScript: mods/stages/nome.json e nome.hx\n" +
+			"HScript de personagem: mods/characters/personagem.hx\n" +
+			"HScript global: mods/scripts/arquivo.hx\n" +
+			"HScript da música: mods/data/nome-da-musica/script.hx\n");
 
 		createTextIfMissing(join(modsData, "freeplaySonglist.txt"),
 			"# Formato: Nome da Musica:icone:semana\n" +

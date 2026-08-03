@@ -1,0 +1,87 @@
+{
+  "directory": "",
+  "defaultZoom": 0.82,
+  "isPixelStage": false,
+  "stageUI": "normal",
+  "boyfriend": [
+    770,
+    450
+  ],
+  "girlfriend": [
+    400,
+    130
+  ],
+  "opponent": [
+    100,
+    100
+  ],
+  "hide_girlfriend": false,
+  "camera_boyfriend": [
+    40,
+    -20
+  ],
+  "camera_opponent": [
+    -30,
+    -10
+  ],
+  "camera_girlfriend": [
+    0,
+    -40
+  ],
+  "camera_speed": 1.15,
+  "objects": [
+    {
+      "tag": "skyBlock",
+      "type": "solid",
+      "x": -600,
+      "y": -350,
+      "width": 2500,
+      "height": 1150,
+      "color": "#28344A",
+      "scrollFactor": [
+        0.25,
+        0.25
+      ],
+      "front": false
+    },
+    {
+      "tag": "backWall",
+      "type": "solid",
+      "x": -350,
+      "y": 250,
+      "width": 2000,
+      "height": 650,
+      "color": "#58647A",
+      "scrollFactor": [
+        0.7,
+        0.7
+      ],
+      "front": false
+    },
+    {
+      "tag": "floorBlock",
+      "type": "solid",
+      "x": -500,
+      "y": 620,
+      "width": 2300,
+      "height": 500,
+      "color": "#343038",
+      "scrollFactor": [
+        1,
+        1
+      ],
+      "front": false
+    },
+    {
+      "tag": "frontShade",
+      "type": "solid",
+      "x": -450,
+      "y": 850,
+      "width": 2200,
+      "height": 260,
+      "color": "#16131B",
+      "alpha": 0.65,
+      "front": true
+    }
+  ]
+}

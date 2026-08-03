@@ -1,0 +1,8 @@
+Este arquivo termina em .txt e NÃO é carregado.
+Renomeie para error.lua apenas para testar a caixa vermelha:
+
+function onCreatePost()
+    setProperty('objetoQueNaoExiste.alpha', 1)
+end
+
+A tela deve mostrar o arquivo, a linha, o callback e a linha de código.
