@@ -119,7 +119,7 @@ class PlayState extends MusicBeatState
 
 	public var notes:FlxTypedGroup<Note>;
 	public var unspawnNotes:Array<Note> = [];
-	private var eventNotes:Array<KadeshEventNote> = [];
+	public var eventNotes:Array<KadeshEventNote> = [];
 
 	// Velocidade usada no movimento das notas. Pode mudar por evento.
 	public var songSpeed(get, set):Float;
@@ -1075,6 +1075,8 @@ class PlayState extends MusicBeatState
 		startingSong = true;
 
 		#if LUA_ALLOWED
+		// Lua é opcional. Qualquer erro de inicialização é tratado pelo manager e
+		// não deve impedir a música de começar no Android ou no PC.
 		PsychLuaManager.initialize();
 		PsychLuaManager.callOnLuas('onCreatePost', [], true);
 		#end
