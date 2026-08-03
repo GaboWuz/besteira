@@ -60,6 +60,12 @@
       "type": "git",
       "ref": "main",
       "url": "https://github.com/GaboWuz/android-manager-quemsoueu"
+    },
+    {
+      "name": "linc_luajit",
+      "type": "git",
+      "ref": "master",
+      "url": "https://github.com/superpowers04/linc_luajit"
     }
   ]
 }
