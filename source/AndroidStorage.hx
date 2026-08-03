@@ -45,6 +45,9 @@ class AndroidStorage
 	public static var modsMusic(default, null):String = "";
 	public static var modsVideos(default, null):String = "";
 	public static var modsScripts(default, null):String = "";
+	public static var modsStages(default, null):String = "";
+	public static var modsCustomEvents(default, null):String = "";
+	public static var modsCustomNoteTypes(default, null):String = "";
 
 	/** true somente quando a estrutura foi criada e o teste de escrita passou. */
 	public static var initialized(default, null):Bool = false;
@@ -284,6 +287,9 @@ class AndroidStorage
 		modsMusic = join(mods, "music");
 		modsVideos = join(mods, "videos");
 		modsScripts = join(mods, "scripts");
+		modsStages = join(mods, "stages");
+		modsCustomEvents = join(mods, "custom_events");
+		modsCustomNoteTypes = join(mods, "custom_notetypes");
 
 		ensureDir(root);
 		ensureDir(saves);
@@ -299,6 +305,9 @@ class AndroidStorage
 		ensureDir(modsMusic);
 		ensureDir(modsVideos);
 		ensureDir(modsScripts);
+		ensureDir(modsStages);
+		ensureDir(modsCustomEvents);
+		ensureDir(modsCustomNoteTypes);
 
 		createTextIfMissing(join(mods, "README.txt"),
 			"KADESHING - MODS EXTERNOS\n\n" +
@@ -306,7 +315,10 @@ class AndroidStorage
 			"Audio: mods/songs/nome-da-musica/Inst.ogg e Voices.ogg\n" +
 			"Freeplay: mods/data/freeplaySonglist.txt\n" +
 			"Personagens JSON: mods/characters/nome.json\n" +
-			"Ícones Psych: mods/images/icons/icon-nome.png\n");
+			"Ícones Psych: mods/images/icons/icon-nome.png\n" +
+			"Lua global: mods/scripts/arquivo.lua\n" +
+			"Lua da música: mods/data/nome-da-musica/script.lua\n" +
+			"Lua de personagem: mods/characters/personagem.lua\n");
 
 		createTextIfMissing(join(modsData, "freeplaySonglist.txt"),
 			"# Formato: Nome da Musica:icone:semana\n" +
