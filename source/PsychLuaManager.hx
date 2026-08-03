@@ -405,13 +405,28 @@ class PsychLuaManager
 
     public static function colorFromString(value:String):FlxColor
     {
-        if (value == null || value.trim().length == 0) return FlxColor.WHITE;
-        var text:String = value.trim().replace('#', '').replace('0x', '');
-        var named:FlxColor = FlxColor.fromString(value);
-        if (named != null) return named;
-        if (text.length == 6) text = 'FF' + text;
-        var parsed:Null<Int> = Std.parseInt('0x' + text);
-        return parsed == null ? FlxColor.WHITE : parsed;
+      if (value == null || value.trim().length == 0)
+          return FlxColor.WHITE;
+    
+      var text:String = value.trim()
+          .replace('#', '')
+          .replace('0x', '')
+          .replace('0X', '');
+    
+      var named:Null<FlxColor> = FlxColor.fromString(value);
+    
+      if (named != null)
+          return named;
+    
+      if (text.length == 6)
+          text = 'FF' + text;
+    
+      var parsed:Null<Int> = Std.parseInt('0x' + text);
+    
+      if (parsed == null)
+          return FlxColor.WHITE;
+    
+      return FlxColor.fromInt(parsed);
     }
 
     static function easeFromString(name:String):Dynamic

@@ -15,7 +15,6 @@ import flixel.util.FlxTimer;
 import llua.Convert;
 import llua.Lua;
 import llua.LuaL;
-import llua.Lua_helper;
 import llua.State;
 import openfl.display.BitmapData;
 import sys.FileSystem;
