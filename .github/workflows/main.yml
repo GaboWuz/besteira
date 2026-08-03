@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   Build:
@@ -17,8 +18,64 @@ jobs:
         with:
           submodules: recursive
 
+      # Descobre o commit atual do fork do android-manager.
+      # Assim, quando você atualizar o fork, o cache de dependências muda sozinho.
+      - name: Resolve android-manager revision
+        id: android_manager
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          import json
+          import os
+          import subprocess
+
+          with open("hmm.json", "r", encoding="utf-8") as file:
+              data = json.load(file)
+
+          dependency = next(
+              item
+              for item in data["dependencies"]
+              if item.get("name") == "android-manager"
+          )
+
+          url = dependency["url"]
+          ref = dependency.get("ref", "main")
+
+          candidates = [
+              f"refs/heads/{ref}",
+              f"refs/tags/{ref}",
+              ref
+          ]
+
+          revision = ""
+
+          for candidate in candidates:
+              result = subprocess.run(
+                  ["git", "ls-remote", url, candidate],
+                  text=True,
+                  capture_output=True,
+                  check=False
+              )
+
+              if result.returncode == 0 and result.stdout.strip():
+                  revision = result.stdout.split()[0]
+                  break
+
+          if not revision:
+              raise RuntimeError(
+                  f"Não foi possível descobrir a revisão de {url} ({ref})."
+              )
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"revision={revision}\n")
+
+          print(f"android-manager revision: {revision}")
+          PY
+
       - name: Setup Android NDK
-        id: setup-ndk
+        id: setup_ndk
         uses: nttld/setup-ndk@v1.6.0
         with:
           ndk-version: r21e
@@ -36,18 +93,17 @@ jobs:
         with:
           haxe-version: 4.2.5
 
-      # Guarda somente os objetos pesados da compilação.
-      # A pasta .haxelib não é guardada enquanto o android-manager está sendo ajustado,
-      # evitando reutilizar uma cópia antiga do fork.
-      - name: Restore build cache
-        uses: actions/cache@v5
+      # Cache 1: bibliotecas instaladas pelo HMM.
+      # Só é invalidado quando hmm.json ou o fork do android-manager muda.
+      - name: Restore Haxelib cache
+        id: haxelib_cache
+        uses: actions/cache/restore@v5
         with:
-          path: |
-            export/release/android/haxe
-            export/release/android/obj
-          key: kade-android-v3-${{ runner.os }}-${{ hashFiles('hmm.json', 'Project.xml') }}
-          restore-keys: |
-            kade-android-v3-${{ runner.os }}-
+          path: .haxelib
+          key: >-
+            kade-haxelib-${{ runner.os }}-
+            ${{ hashFiles('hmm.json') }}-
+            ${{ steps.android_manager.outputs.revision }}
 
       - name: Install libraries
         shell: bash
@@ -60,10 +116,42 @@ jobs:
           echo "Dependências instaladas:"
           haxelib list
 
+      # Salva as bibliotecas logo após instalar.
+      # Desse modo elas ficam em cache mesmo se a compilação falhar depois.
+      - name: Save Haxelib cache
+        if: steps.haxelib_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .haxelib
+          key: >-
+            kade-haxelib-${{ runner.os }}-
+            ${{ hashFiles('hmm.json') }}-
+            ${{ steps.android_manager.outputs.revision }}
+
+      # Cache 2: objetos C++, arquivos Haxe gerados e cache do Gradle.
+      # O run_id deixa a chave nova, enquanto restore-keys recupera o build
+      # incremental mais recente compatível.
+      - name: Restore build cache
+        id: build_cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            export/release/android/haxe
+            export/release/android/obj
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: >-
+            kade-build-${{ runner.os }}-
+            ${{ hashFiles('hmm.json', 'Project.xml') }}-
+            ${{ steps.android_manager.outputs.revision }}-
+            ${{ github.run_id }}
+          restore-keys: |
+            kade-build-${{ runner.os }}-${{ hashFiles('hmm.json', 'Project.xml') }}-${{ steps.android_manager.outputs.revision }}-
+
       - name: Configure Android
         shell: bash
         env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: ${{ steps.setup_ndk.outputs.ndk-path }}
         run: |
           set -euo pipefail
 
@@ -78,8 +166,7 @@ jobs:
           java -version
           haxe -version
 
-      # Gera o projeto Android e compila somente o Java primeiro.
-      # Assim erros do android-manager aparecem antes da compilação C++ demorada.
+      # Verifica o Java antes da compilação C++ demorada.
       - name: Android Java preflight
         shell: bash
         run: |
@@ -100,6 +187,21 @@ jobs:
         run: |
           set -euo pipefail
           haxelib run lime build android -final
+
+      # Salva o resultado incremental somente depois de uma build completa.
+      - name: Save build cache
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            export/release/android/haxe
+            export/release/android/obj
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: >-
+            kade-build-${{ runner.os }}-
+            ${{ hashFiles('hmm.json', 'Project.xml') }}-
+            ${{ steps.android_manager.outputs.revision }}-
+            ${{ github.run_id }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
