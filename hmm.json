@@ -31,15 +31,15 @@
       "version": "2.6.0"
     },
     {
-        "name": "hscript",
-        "type": "haxelib",
-        "version": "2.4.0"
-      },
+      "name": "hscript",
+      "type": "haxelib",
+      "version": "2.4.0"
+    },
     {
-        "name": "hxCodec",
-        "type": "haxelib",
-        "version": "2.6.1"
-      },
+      "name": "hxCodec",
+      "type": "haxelib",
+      "version": "2.6.1"
+    },
     {
       "name": "newgrounds",
       "type": "haxelib",
@@ -64,8 +64,8 @@
     {
       "name": "linc_luajit",
       "type": "git",
-      "ref": "master",
-      "url": "https://github.com/superpowers04/linc_luajit"
+      "ref": "main",
+      "url": "https://github.com/DeveloperPorting-Stuff/linc_luajit"
     }
   ]
 }
