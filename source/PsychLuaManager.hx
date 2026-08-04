@@ -915,7 +915,7 @@ class PsychLuaManager
         var result:String = path.trim();
         var bracket:EReg = ~/\[([0-9]+)\]/g;
         result = bracket.replace(result, '.$1');
-        var quotedBracket:EReg = ~/\[['\"]([^'\"]+)['\"]\]/g;
+        var quotedBracket:EReg = ~/\[['"]([^'"]+)['"]\]/g;
         result = quotedBracket.replace(result, '.$1');
         while (result.startsWith('.')) result = result.substr(1);
         while (result.indexOf('..') != -1) result = result.replace('..', '.');
