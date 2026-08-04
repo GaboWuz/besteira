@@ -1,12 +1,22 @@
 package;
 
 #if HSCRIPT_ALLOWED
+import flixel.FlxBasic;
+import flixel.FlxCamera;
 import flixel.FlxG;
+import flixel.FlxObject;
 import flixel.FlxSprite;
+import flixel.group.FlxGroup;
+import flixel.group.FlxGroup.FlxTypedGroup;
+import flixel.math.FlxMath;
+import flixel.math.FlxPoint;
+import flixel.system.FlxSound;
 import flixel.text.FlxText;
 import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
+import flixel.ui.FlxBar;
 import flixel.util.FlxColor;
+import flixel.util.FlxTimer;
 import haxe.Json;
 import hscript.Interp;
 import hscript.Parser;
@@ -28,6 +38,7 @@ class PsychHScriptManager
     public static var scripts:Array<PsychHScript> = [];
     static var loadedLogicalPaths:Map<String, Bool> = new Map<String, Bool>();
     static var currentScript:PsychHScript = null;
+    static var sharedVariables:Map<String, Dynamic> = new Map<String, Dynamic>();
 
     public static function initialize():Void
     {
@@ -182,11 +193,21 @@ class PsychHScriptManager
 
             if (trim.startsWith('class ') || trim.startsWith('enum ') || trim.startsWith('typedef '))
             {
-                output.push('throw "HScript do mods folder usa funções de topo; remova class/enum/typedef.";');
+                output.push('throw "Softcode usa código de topo como na Psych 0.7.3; deixe var/function fora de class.";');
                 continue;
             }
 
-            output.push(line);
+            // Scripts copiados de source code costumam deixar modificadores
+            // que só fazem sentido dentro de uma classe compilada. No softcode
+            // eles são removidos, preservando a linha para o relatório de erro.
+            var indent:String = line.substr(0, line.length - StringTools.ltrim(line).length);
+            var code:String = StringTools.ltrim(line);
+            for (modifier in ['public ', 'private ', 'protected ', 'override ', 'static '])
+            {
+                while (code.startsWith(modifier))
+                    code = code.substr(modifier.length);
+            }
+            output.push(indent + code);
         }
         return output.join('\n');
     }
@@ -334,8 +355,18 @@ class PsychHScriptManager
         variables.set('StringTools', StringTools);
         variables.set('Json', Json);
         variables.set('FlxG', FlxG);
+        variables.set('FlxBasic', FlxBasic);
+        variables.set('FlxCamera', FlxCamera);
+        variables.set('FlxObject', FlxObject);
         variables.set('FlxSprite', FlxSprite);
         variables.set('FlxText', FlxText);
+        variables.set('FlxGroup', FlxGroup);
+        variables.set('FlxTypedGroup', FlxTypedGroup);
+        variables.set('FlxPoint', FlxPoint);
+        variables.set('FlxMath', FlxMath);
+        variables.set('FlxSound', FlxSound);
+        variables.set('FlxBar', FlxBar);
+        variables.set('FlxTimer', FlxTimer);
         variables.set('FlxTween', FlxTween);
         variables.set('FlxEase', FlxEase);
         variables.set('FlxColor', createFlxColorAPI());
@@ -346,6 +377,12 @@ class PsychHScriptManager
         variables.set('Boyfriend', Boyfriend);
         variables.set('Note', Note);
         variables.set('HealthIcon', HealthIcon);
+        variables.set('AndroidStorage', AndroidStorage);
+        variables.set('KadeshModAssets', KadeshModAssets);
+        variables.set('KadeshModPaths', KadeshModPaths);
+        variables.set('KadeshStageData', KadeshStageData);
+        variables.set('KadeshBGSprite', KadeshBGSprite);
+        variables.set('BGSprite', KadeshBGSprite);
 
         variables.set('game', PlayState.instance);
         variables.set('boyfriend', PlayState.boyfriend);
@@ -354,6 +391,58 @@ class PsychHScriptManager
         variables.set('camGame', FlxG.camera);
         variables.set('camHUD', PlayState.instance == null ? null : PlayState.instance.camHUD);
         variables.set('stage', KadeshStageData.current);
+        variables.set('members', PlayState.instance == null ? null : PlayState.instance.members);
+
+        // API de softcode no estilo da Psych 0.7.3: o script pode instanciar
+        // FlxSprite/FlxText/FlxTimer e adicionar objetos diretamente ao state.
+        variables.set('add', function(object:Dynamic):Dynamic
+        {
+            if (PlayState.instance == null || object == null) return object;
+            PlayState.instance.add(cast object);
+            return object;
+        });
+        variables.set('insert', function(position:Int, object:Dynamic):Dynamic
+        {
+            if (PlayState.instance == null || object == null) return object;
+            var index:Int = Std.int(Math.max(0, Math.min(position, PlayState.instance.members.length)));
+            PlayState.instance.insert(index, cast object);
+            return object;
+        });
+        variables.set('remove', function(object:Dynamic, ?splice:Bool = false):Dynamic
+        {
+            if (PlayState.instance == null || object == null) return object;
+            PlayState.instance.remove(cast object, splice);
+            return object;
+        });
+        variables.set('addBehindGF', function(object:Dynamic):Dynamic
+            return insertBehindCharacter(object, PlayState.gf));
+        variables.set('addBehindDad', function(object:Dynamic):Dynamic
+            return insertBehindCharacter(object, PlayState.dad));
+        variables.set('addBehindBF', function(object:Dynamic):Dynamic
+            return insertBehindCharacter(object, PlayState.boyfriend));
+        variables.set('getObject', function(name:String):Dynamic
+            return PsychLuaManager.resolveObject(name));
+        variables.set('getVar', function(name:String):Dynamic
+            return sharedVariables.get(name));
+        variables.set('setVar', function(name:String, value:Dynamic):Dynamic
+        {
+            sharedVariables.set(name, value);
+            return value;
+        });
+        variables.set('removeVar', function(name:String):Bool
+            return sharedVariables.remove(name));
+        variables.set('addHaxeLibrary', function(className:String, ?packageName:String = ''):Bool
+        {
+            var fullName:String = packageName == null || packageName.length == 0
+                ? className
+                : packageName + '.' + className;
+            var resolved:Dynamic = Type.resolveClass(fullName);
+            if (resolved == null) resolved = Type.resolveEnum(fullName);
+            if (resolved == null || currentScript == null || currentScript.interp == null)
+                return false;
+            currentScript.interp.variables.set(className, resolved);
+            return true;
+        });
 
         // Em characters/<nome>.hx, "character" aponta para a instância que
         // usa aquele nome. Os aliases dad/boyfriend/gf continuam disponíveis.
@@ -417,6 +506,8 @@ class PsychHScriptManager
             return PsychLuaManager.scriptSetObjectCamera(tag, camera));
         variables.set('setScrollFactor', function(tag:String, x:Float, y:Float):Bool
             return PsychLuaManager.scriptSetScrollFactor(tag, x, y));
+        variables.set('setLuaSpriteScrollFactor', function(tag:String, x:Float, y:Float):Bool
+            return PsychLuaManager.scriptSetScrollFactor(tag, x, y));
         variables.set('scaleObject', function(tag:String, x:Float, y:Float, ?updateHitbox:Bool = true):Bool
             return PsychLuaManager.scriptScaleObject(tag, x, y, updateHitbox));
         variables.set('setGraphicSize', function(tag:String, width:Int, ?height:Int = 0, ?updateHitbox:Bool = true):Bool
@@ -455,6 +546,8 @@ class PsychHScriptManager
             return PsychLuaManager.tweenProperty(tag, object, 'alpha', value, duration, ease));
         variables.set('doTweenAngle', function(tag:String, object:String, value:Float, duration:Float, ?ease:String = 'linear'):Bool
             return PsychLuaManager.tweenProperty(tag, object, 'angle', value, duration, ease));
+        variables.set('doTweenColor', function(tag:String, object:String, color:String, duration:Float, ?ease:String = 'linear'):Bool
+            return PsychLuaManager.tweenColor(tag, object, color, duration, ease));
         variables.set('doTweenZoom', function(tag:String, camera:String, value:Float, duration:Float, ?ease:String = 'linear'):Bool
             return PsychLuaManager.tweenCameraZoom(tag, camera, value, duration, ease));
         variables.set('cancelTween', function(tag:String):Bool return PsychLuaManager.cancelTween(tag));
@@ -486,6 +579,19 @@ class PsychHScriptManager
         {
             if (currentScript != null) currentScript.close();
         });
+    }
+
+    static function insertBehindCharacter(object:Dynamic, character:Character):Dynamic
+    {
+        if (PlayState.instance == null || object == null)
+            return object;
+
+        var index:Int = character == null
+            ? PlayState.instance.members.length
+            : PlayState.instance.members.indexOf(character);
+        if (index < 0) index = PlayState.instance.members.length;
+        PlayState.instance.insert(index, cast object);
+        return object;
     }
 
     static function resolveScriptCharacter(logical:String):Character
@@ -615,6 +721,41 @@ class PsychHScriptManager
         setOnHScripts('scrollSpeed', PlayState.instance.songSpeed);
         setOnHScripts('screenWidth', FlxG.width);
         setOnHScripts('screenHeight', FlxG.height);
+
+        var sectionIndex:Int = 0;
+        var accumulatedSteps:Int = 0;
+        if (PlayState.SONG.notes != null)
+        {
+            for (i in 0...PlayState.SONG.notes.length)
+            {
+                var sectionData:Dynamic = PlayState.SONG.notes[i];
+                var rawLength:Dynamic = sectionData == null ? null : Reflect.field(sectionData, 'lengthInSteps');
+                var parsedLength:Null<Int> = rawLength == null ? null : Std.parseInt(Std.string(rawLength));
+                var length:Int = 16;
+                if (parsedLength != null && parsedLength > 0) length = parsedLength;
+                sectionIndex = i;
+                if (PlayState.instance.curStep < accumulatedSteps + length) break;
+                accumulatedSteps += length;
+            }
+        }
+        var mustHitSection:Bool = false;
+        var gfSection:Bool = false;
+        var altAnim:Bool = false;
+        if (PlayState.SONG.notes != null
+            && sectionIndex >= 0
+            && sectionIndex < PlayState.SONG.notes.length
+            && PlayState.SONG.notes[sectionIndex] != null)
+        {
+            var section:Dynamic = PlayState.SONG.notes[sectionIndex];
+            mustHitSection = Reflect.field(section, 'mustHitSection') == true;
+            gfSection = Reflect.field(section, 'gfSection') == true;
+            altAnim = Reflect.field(section, 'altAnim') == true;
+        }
+        setOnHScripts('curSection', sectionIndex);
+        setOnHScripts('mustHitSection', mustHitSection);
+        setOnHScripts('mustHit', mustHitSection);
+        setOnHScripts('gfSection', gfSection);
+        setOnHScripts('altAnim', altAnim);
     }
 
     static function usedNoteTypes():Array<String>
@@ -660,6 +801,7 @@ class PsychHScriptManager
         }
         scripts = [];
         loadedLogicalPaths = new Map<String, Bool>();
+        sharedVariables = new Map<String, Dynamic>();
         currentScript = null;
     }
 

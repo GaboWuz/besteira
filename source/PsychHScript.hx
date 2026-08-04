@@ -39,11 +39,42 @@ class PsychHScript
         catch (e:Dynamic)
         {
             errorCount++;
-            KadeshScriptDebug.report('HSCRIPT', scriptName, Std.string(e), functionName);
+            var message:String = formatError(e);
+            KadeshScriptDebug.report('HSCRIPT', scriptName, message, functionName);
             if (errorCount >= 3)
                 close();
             return null;
         }
+    }
+
+    static function formatError(error:Dynamic):String
+    {
+        var text:String = Std.string(error);
+        var line:Null<Int> = null;
+
+        try
+        {
+            var value:Dynamic = Reflect.field(error, 'line');
+            if (value != null)
+                line = Std.int(value);
+        }
+        catch (ignored:Dynamic) {}
+
+        if (line == null)
+        {
+            try
+            {
+                var origin:Dynamic = Reflect.field(error, 'origin');
+                var value:Dynamic = origin == null ? null : Reflect.field(origin, 'line');
+                if (value != null)
+                    line = Std.int(value);
+            }
+            catch (ignored:Dynamic) {}
+        }
+
+        return line != null && line > 0
+            ? scriptName + ':' + line + ': ' + text
+            : text;
     }
 
     public function set(name:String, value:Dynamic):Void

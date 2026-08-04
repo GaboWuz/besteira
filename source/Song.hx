@@ -9,15 +9,16 @@ typedef SwagSong =
 {
 	var song:String;
 	var notes:Array<SwagSection>;
+	/** Eventos no formato Psych: [tempo, [[nome, value1, value2], ...]]. */
 	@:optional var events:Array<Dynamic>;
 	var bpm:Float;
 	var needsVoices:Bool;
 	var speed:Float;
 	var player1:String;
 	var player2:String;
-	@:optional var gfVersion:String;
-	@:optional var noteStyle:String;
-	@:optional var stage:String;
+	var gfVersion:String;
+	var noteStyle:String;
+	var stage:String;
 	var validScore:Bool;
 }
 
@@ -50,16 +51,14 @@ class Song
 		if (folder == null || folder.trim().length == 0)
 			folder = jsonInput;
 
-		var folderName:String = Paths.formatToSongPath(folder);
-		var chartName:String = Paths.formatToSongPath(jsonInput);
-		var chartPath:String = Paths.json(folderName + '/' + chartName);
-		var rawJson:Null<String> = Paths.getText(chartPath);
-
+		var folderName = Paths.formatToSongPath(folder);
+		var chartName = jsonInput.toLowerCase();
+		var chartPath = Paths.json(folderName + '/' + chartName);
+		var rawJson = Paths.getText(chartPath);
 		if (rawJson == null)
 			throw '[Song] Chart não encontrado: ' + chartPath;
 
 		rawJson = rawJson.trim();
-
 		while (rawJson.length > 0 && !rawJson.endsWith('}'))
 			rawJson = rawJson.substr(0, rawJson.length - 1);
 
@@ -79,19 +78,20 @@ class Song
 	public static function parseJSONshit(rawJson:String):SwagSong
 	{
 		var parsed:Dynamic = Json.parse(rawJson);
-
-		if (parsed == null || Reflect.field(parsed, 'song') == null)
+		if (parsed == null || parsed.song == null)
 			throw 'O JSON precisa possuir o objeto "song".';
 
-		var dynamicSong:Dynamic = Reflect.field(parsed, 'song');
-
-		if (Reflect.field(dynamicSong, 'events') == null)
-			Reflect.setField(dynamicSong, 'events', []);
-
-		if (Reflect.field(dynamicSong, 'notes') == null)
-			Reflect.setField(dynamicSong, 'notes', []);
-
-		var songData:SwagSong = cast dynamicSong;
+		var songData:SwagSong = cast parsed.song;
+		if (songData.notes == null)
+			songData.notes = [];
+		if (!Reflect.hasField(songData, 'events') || songData.events == null)
+			songData.events = [];
+		if (songData.gfVersion == null || songData.gfVersion.length == 0)
+			songData.gfVersion = 'gf';
+		if (songData.noteStyle == null || songData.noteStyle.length == 0)
+			songData.noteStyle = 'normal';
+		if (songData.stage == null || songData.stage.length == 0)
+			songData.stage = 'stage';
 		songData.validScore = true;
 		return songData;
 	}

@@ -198,6 +198,11 @@ class PlayState extends MusicBeatState
 	public var songScore:Int = 0;
 	var songScoreDef:Int = 0;
 	public var scoreTxt:FlxText;
+	// Compatibilidade com scripts Psych. Controla apenas os sprites
+	// temporários de rating/combo, sem alterar o cálculo do score.
+	public var showRating:Bool = true;
+	public var showCombo:Bool = true;
+	public var showComboNum:Bool = true;
 	var replayTxt:FlxText;
 
 	public static var campaignScore:Int = 0;
@@ -3666,7 +3671,7 @@ class PlayState extends MusicBeatState
 	
 			comboSpr.velocity.x += FlxG.random.int(1, 10);
 			currentTimingShown.velocity.x += comboSpr.velocity.x;
-			if(!PlayStateChangeables.botPlay || loadRep) add(rating);
+			if((!PlayStateChangeables.botPlay || loadRep) && showRating) add(rating);
 	
 			if (!curStage.startsWith('school'))
 			{
@@ -3688,6 +3693,8 @@ class PlayState extends MusicBeatState
 			currentTimingShown.cameras = [camHUD];
 			comboSpr.cameras = [camHUD];
 			rating.cameras = [camHUD];
+			if ((!PlayStateChangeables.botPlay || loadRep) && showCombo)
+				add(comboSpr);
 
 			var seperatedScore:Array<Int> = [];
 	
@@ -3735,7 +3742,7 @@ class PlayState extends MusicBeatState
 				numScore.velocity.y -= FlxG.random.int(140, 160);
 				numScore.velocity.x = FlxG.random.float(-5, 5);
 	
-				add(numScore);
+				if (showComboNum) add(numScore);
 	
 				FlxTween.tween(numScore, {alpha: 0}, 0.2, {
 					onComplete: function(tween:FlxTween)

@@ -54,6 +54,7 @@ class PsychLuaManager
     public static var luaTweens:Map<String, FlxTween> = new Map<String, FlxTween>();
     public static var luaTimers:Map<String, FlxTimer> = new Map<String, FlxTimer>();
     public static var luaSounds:Map<String, FlxSound> = new Map<String, FlxSound>();
+    public static var compatObjects:Map<String, KadeshLuaCompatObject> = new Map<String, KadeshLuaCompatObject>();
 
     static var lua:State = null;
     static var nextScriptId:Int = 1;
@@ -541,6 +542,44 @@ class PsychLuaManager
         setOnLuas('cameraX', FlxG.camera.x);
         setOnLuas('cameraY', FlxG.camera.y);
 
+        // Variáveis de seção usadas pelos scripts tradicionais da Psych.
+        // A Kade 1.5.4 usa seções de 16 steps no gameplay, então mantemos
+        // a mesma indexação utilizada pelo próprio PlayState.
+        var sectionIndex:Int = 0;
+        var accumulatedSteps:Int = 0;
+        if (PlayState.SONG.notes != null)
+        {
+            for (i in 0...PlayState.SONG.notes.length)
+            {
+                var sectionData:Dynamic = PlayState.SONG.notes[i];
+                var rawLength:Dynamic = sectionData == null ? null : Reflect.field(sectionData, 'lengthInSteps');
+                var parsedLength:Null<Int> = rawLength == null ? null : Std.parseInt(Std.string(rawLength));
+                var length:Int = 16;
+                if (parsedLength != null && parsedLength > 0) length = parsedLength;
+                sectionIndex = i;
+                if (PlayState.instance.curStep < accumulatedSteps + length) break;
+                accumulatedSteps += length;
+            }
+        }
+        var mustHitSection:Bool = false;
+        var gfSection:Bool = false;
+        var altAnim:Bool = false;
+        if (PlayState.SONG.notes != null
+            && sectionIndex >= 0
+            && sectionIndex < PlayState.SONG.notes.length
+            && PlayState.SONG.notes[sectionIndex] != null)
+        {
+            var section:Dynamic = PlayState.SONG.notes[sectionIndex];
+            mustHitSection = Reflect.field(section, 'mustHitSection') == true;
+            gfSection = Reflect.field(section, 'gfSection') == true;
+            altAnim = Reflect.field(section, 'altAnim') == true;
+        }
+        setOnLuas('curSection', sectionIndex);
+        setOnLuas('mustHitSection', mustHitSection);
+        setOnLuas('mustHit', mustHitSection);
+        setOnLuas('gfSection', gfSection);
+        setOnLuas('altAnim', altAnim);
+
         if (PlayState.playerStrums != null && PlayState.cpuStrums != null)
         {
             for (i in 0...4)
@@ -710,6 +749,20 @@ class PsychLuaManager
             sprite.scrollFactor.set(floatArg(a, 1), floatArg(a, 2));
             return true;
         });
+        // Nome legado ainda usado por muitos scripts 0.6.x/0.7.x.
+        addSafeCallback('setLuaSpriteScrollFactor', function(a) {
+            var sprite:FlxSprite = cast resolveObject(stringArg(a, 0));
+            if (sprite == null) return false;
+            sprite.scrollFactor.set(floatArg(a, 1), floatArg(a, 2));
+            return true;
+        });
+        addSafeCallback('setLuaSpriteScale', function(a) {
+            var sprite:FlxSprite = cast resolveObject(stringArg(a, 0));
+            if (sprite == null) return false;
+            sprite.scale.set(floatArg(a, 1, 1), floatArg(a, 2, 1));
+            sprite.updateHitbox();
+            return true;
+        });
         addSafeCallback('scaleObject', function(a) {
             var sprite:FlxSprite = cast resolveObject(stringArg(a, 0));
             if (sprite == null) return false;
@@ -745,6 +798,7 @@ class PsychLuaManager
         addSafeCallback('doTweenY', function(a) return tweenProperty(stringArg(a, 0), stringArg(a, 1), 'y', floatArg(a, 2), floatArg(a, 3), stringArg(a, 4, 'linear')));
         addSafeCallback('doTweenAlpha', function(a) return tweenProperty(stringArg(a, 0), stringArg(a, 1), 'alpha', floatArg(a, 2), floatArg(a, 3), stringArg(a, 4, 'linear')));
         addSafeCallback('doTweenAngle', function(a) return tweenProperty(stringArg(a, 0), stringArg(a, 1), 'angle', floatArg(a, 2), floatArg(a, 3), stringArg(a, 4, 'linear')));
+        addSafeCallback('doTweenColor', function(a) return tweenColor(stringArg(a, 0), stringArg(a, 1), stringArg(a, 2, 'FFFFFF'), floatArg(a, 3), stringArg(a, 4, 'linear')));
         addSafeCallback('doTweenZoom', function(a) return tweenCameraZoom(stringArg(a, 0), stringArg(a, 1), floatArg(a, 2), floatArg(a, 3), stringArg(a, 4, 'linear')));
         addSafeCallback('cancelTween', function(a) return cancelTween(stringArg(a, 0)));
 
@@ -875,6 +929,16 @@ class PsychLuaManager
             if (stageObject != null) return stageObject;
         }
 
+        // Objetos de HUD que existem na Psych mas não existem na Kade.
+        // O proxy torna alterações como timeBar.visible/Num.visible inofensivas,
+        // em vez de interromper a música com um erro.
+        switch (id)
+        {
+            case 'Num' | 'comboGroup' | 'timeBar' | 'timeBarBG' | 'timeTxt':
+                return getCompatObject(id);
+            default:
+        }
+
         switch (id)
         {
             case 'boyfriend' | 'bf': return PlayState.boyfriend;
@@ -907,6 +971,13 @@ class PsychLuaManager
                 }
         }
         return null;
+    }
+
+    static function getCompatObject(name:String):KadeshLuaCompatObject
+    {
+        if (!compatObjects.exists(name))
+            compatObjects.set(name, new KadeshLuaCompatObject(name));
+        return compatObjects.get(name);
     }
 
     static function normalizePropertyPath(path:String):String
@@ -1483,6 +1554,31 @@ class PsychLuaManager
         return true;
     }
 
+    public static function tweenColor(tag:String, objectName:String, color:String, duration:Float, ease:String):Bool
+    {
+        var sprite:FlxSprite = cast resolveObject(objectName);
+        if (sprite == null) return false;
+        cancelTween(tag);
+
+        var target:FlxColor = colorFromString(color);
+        var tween:FlxTween = FlxTween.color(
+            sprite,
+            Math.max(0.0001, duration),
+            sprite.color,
+            target,
+            {
+                ease: easeFromString(ease),
+                onComplete: function(_:FlxTween)
+                {
+                    luaTweens.remove(tag);
+                    dispatchSharedCallback('onTweenCompleted', [tag]);
+                }
+            }
+        );
+        luaTweens.set(tag, tween);
+        return true;
+    }
+
     public static function tweenCameraZoom(tag:String, camera:String, value:Float, duration:Float, ease:String):Bool
     {
         var target:FlxCamera = getCamera(camera);
@@ -1906,6 +2002,7 @@ class PsychLuaManager
         scripts = [];
         callbackNames = [];
         loadedLogicalPaths = new Map<String, Bool>();
+        compatObjects = new Map<String, KadeshLuaCompatObject>();
         modRoots = [];
         nextScriptId = 1;
         currentCallingScript = -1;
@@ -2025,6 +2122,30 @@ class PsychLuaManager
         var fixed:String = path.replace('\\', '/');
         var parts:Array<String> = fixed.split('/');
         return parts.length > 0 ? parts[parts.length - 1] : fixed;
+    }
+}
+
+
+/**
+ * Proxy leve para propriedades da Psych que não têm equivalente visual na
+ * Kade 1.5.4. Ele aceita getProperty/setProperty sem inventar sprites.
+ */
+class KadeshLuaCompatObject
+{
+    public var name(default, null):String;
+    public var visible:Bool = true;
+    public var active:Bool = true;
+    public var exists:Bool = true;
+    public var alpha:Float = 1;
+    public var x:Float = 0;
+    public var y:Float = 0;
+    public var angle:Float = 0;
+    public var width:Float = 0;
+    public var height:Float = 0;
+
+    public function new(name:String)
+    {
+        this.name = name;
     }
 }
 

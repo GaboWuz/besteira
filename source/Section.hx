@@ -20,9 +20,7 @@ class Section
 	public var mustHitSection:Bool = true;
 	public var gfSection:Bool = false;
 
-	/**
-	 * Copies the first section into the second section.
-	 */
+	/** Copies the first section into the second section. */
 	public static var COPYCAT:Int = 0;
 
 	public function new(lengthInSteps:Int = 16)

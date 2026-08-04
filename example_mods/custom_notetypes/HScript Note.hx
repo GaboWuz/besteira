@@ -1,11 +1,7 @@
-function goodNoteHit(id, direction, noteType, isSustainNote)
-{
-    if (noteType == 'HScript Note' && !isSustainNote)
-        triggerEvent('Add Camera Zoom', '0.01', '0.015');
-}
+package;
 
-function opponentNoteHit(id, direction, noteType, isSustainNote)
+function goodNoteHit(id:Int, direction:Int, noteType:String, isSustainNote:Bool):Void
 {
-    if (noteType == 'HScript Note' && !isSustainNote)
-        setProperty('dad.alpha', 0.92);
+	if (noteType != 'HScript Note') return;
+	cameraFlash('camHUD', 'FFFFFF', 0.05, false);
 }
