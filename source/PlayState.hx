@@ -110,7 +110,7 @@ class PlayState extends MusicBeatState
 	var detailsPausedText:String = "";
 	#end
 
-	private var vocals:FlxSound;
+	public var vocals(default, null):FlxSound;
 
 	public var originalX:Float;
 
