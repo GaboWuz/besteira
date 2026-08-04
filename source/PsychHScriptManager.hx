@@ -362,7 +362,7 @@ class PsychHScriptManager
         variables.set('FlxText', FlxText);
         variables.set('FlxGroup', FlxGroup);
         variables.set('FlxTypedGroup', FlxTypedGroup);
-        variables.set('FlxPoint', FlxPoint);
+        variables.set('FlxPoint', PsychHScriptFlxPoint);
         variables.set('FlxMath', FlxMath);
         variables.set('FlxSound', FlxSound);
         variables.set('FlxBar', FlxBar);
@@ -810,6 +810,34 @@ class PsychHScriptManager
         if (path == null) return '';
         var parts:Array<String> = path.replace('\\', '/').split('/');
         return parts.length > 0 ? parts[parts.length - 1] : path;
+    }
+}
+
+/**
+ * FlxPoint é um abstract no HaxeFlixel 5.2.2 e não pode ser passado ao
+ * HScript como valor. Esta classe runtime mantém tanto `new FlxPoint(x, y)`
+ * quanto `FlxPoint.get(x, y)` e `FlxPoint.weak(x, y)` no softcode.
+ */
+@:keep
+@:access(flixel.math.FlxPoint.FlxBasePoint)
+private class PsychHScriptFlxPoint extends FlxBasePoint
+{
+    public static var EPSILON(default, null):Float = FlxPoint.EPSILON;
+    public static var EPSILON_SQUARED(default, null):Float = FlxPoint.EPSILON_SQUARED;
+
+    public function new(?x:Float = 0, ?y:Float = 0)
+    {
+        super(x, y);
+    }
+
+    public static function get(?x:Float = 0, ?y:Float = 0):FlxPoint
+    {
+        return FlxPoint.get(x, y);
+    }
+
+    public static function weak(?x:Float = 0, ?y:Float = 0):FlxPoint
+    {
+        return FlxPoint.weak(x, y);
     }
 }
 #else
