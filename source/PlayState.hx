@@ -2919,8 +2919,8 @@ class PlayState extends MusicBeatState
 
 			if (!isCameraOnForcedPos && !PlayState.SONG.notes[Std.int(curStep / 16)].mustHitSection)
 			{
-				var offsetX = 0;
-				var offsetY = 0;
+				var offsetX:Float = 0;
+				var offsetY:Float = 0;
 				#if windows
 				if (luaModchart != null)
 				{
@@ -2959,8 +2959,8 @@ class PlayState extends MusicBeatState
 
 			if (!isCameraOnForcedPos && PlayState.SONG.notes[Std.int(curStep / 16)].mustHitSection)
 			{
-				var offsetX = 0;
-				var offsetY = 0;
+				var offsetX:Float = 0;
+				var offsetY:Float = 0;
 				#if windows
 				if (luaModchart != null)
 				{
@@ -3188,11 +3188,18 @@ class PlayState extends MusicBeatState
 							camZooming = true;
 
 						handleOpponentNoteAnimation(daNote);
+
+						var opponentNoteArgs:Array<Dynamic> = [
+							notes.members.indexOf(daNote),
+							daNote.noteData,
+							daNote.noteType,
+							daNote.isSustainNote
+						];
 						#if LUA_ALLOWED
-						PsychLuaManager.callOnLuas('opponentNoteHit', [notes.members.indexOf(daNote), daNote.noteData, daNote.noteType, daNote.isSustainNote], true);
+						PsychLuaManager.callOnLuas('opponentNoteHit', opponentNoteArgs, true);
 						#end
 						#if HSCRIPT_ALLOWED
-						PsychHScriptManager.callOnHScripts('opponentNoteHit', [notes.members.indexOf(daNote), daNote.noteData, daNote.noteType, daNote.isSustainNote], true);
+						PsychHScriptManager.callOnHScripts('opponentNoteHit', opponentNoteArgs, true);
 						#end
 						if (FlxG.save.data.cpuStrums)
 						{
@@ -4072,11 +4079,17 @@ class PlayState extends MusicBeatState
 
 			if (daNote != null)
 			{
+				var noteMissArgs:Array<Dynamic> = [
+					notes.members.indexOf(daNote),
+					direction,
+					daNote.noteType,
+					daNote.isSustainNote
+				];
 				#if LUA_ALLOWED
-				PsychLuaManager.callOnLuas('noteMiss', [notes.members.indexOf(daNote), direction, daNote.noteType, daNote.isSustainNote], true);
+				PsychLuaManager.callOnLuas('noteMiss', noteMissArgs, true);
 				#end
 				#if HSCRIPT_ALLOWED
-				PsychHScriptManager.callOnHScripts('noteMiss', [notes.members.indexOf(daNote), direction, daNote.noteType, daNote.isSustainNote], true);
+				PsychHScriptManager.callOnHScripts('noteMiss', noteMissArgs, true);
 				#end
 			}
 			else
@@ -4257,11 +4270,18 @@ class PlayState extends MusicBeatState
 					});
 					
 					note.wasGoodHit = true;
+
+					var goodNoteArgs:Array<Dynamic> = [
+						notes.members.indexOf(note),
+						note.noteData,
+						note.noteType,
+						note.isSustainNote
+					];
 					#if LUA_ALLOWED
-					PsychLuaManager.callOnLuas('goodNoteHit', [notes.members.indexOf(note), note.noteData, note.noteType, note.isSustainNote], true);
+					PsychLuaManager.callOnLuas('goodNoteHit', goodNoteArgs, true);
 					#end
 					#if HSCRIPT_ALLOWED
-					PsychHScriptManager.callOnHScripts('goodNoteHit', [notes.members.indexOf(note), note.noteData, note.noteType, note.isSustainNote], true);
+					PsychHScriptManager.callOnHScripts('goodNoteHit', goodNoteArgs, true);
 					#end
 					vocals.volume = 1;
 		

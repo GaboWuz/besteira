@@ -1,0 +1,3 @@
+# Copie/renomeie para freeplaySonglist.txt para testar.
+HScript Example:bf:0
+Lua Property Example:bf:0
