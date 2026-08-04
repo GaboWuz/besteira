@@ -47,7 +47,7 @@ class PsychHScript
         }
     }
 
-    static function formatError(error:Dynamic):String
+    function formatError(error:Dynamic):String
     {
         var text:String = Std.string(error);
         var line:Null<Int> = null;
