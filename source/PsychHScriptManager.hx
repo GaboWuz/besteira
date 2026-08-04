@@ -191,6 +191,137 @@ class PsychHScriptManager
         return output.join('\n');
     }
 
+    /**
+     * FlxColor é um abstract sobre Int no HaxeFlixel 5.2.2.
+     * Abstracts não podem ser passados ao HScript como valor de classe.
+     *
+     * Este objeto mantém a sintaxe usada em scripts:
+     *
+     * FlxColor.WHITE
+     * FlxColor.fromRGB(255, 0, 0)
+     * FlxColor.fromString("#FF0000")
+     */
+    static function createFlxColorAPI():Dynamic
+    {
+        return {
+            TRANSPARENT: cast FlxColor.TRANSPARENT,
+            WHITE: cast FlxColor.WHITE,
+            GRAY: cast FlxColor.GRAY,
+            BLACK: cast FlxColor.BLACK,
+            GREEN: cast FlxColor.GREEN,
+            LIME: cast FlxColor.LIME,
+            YELLOW: cast FlxColor.YELLOW,
+            ORANGE: cast FlxColor.ORANGE,
+            RED: cast FlxColor.RED,
+            PURPLE: cast FlxColor.PURPLE,
+            BLUE: cast FlxColor.BLUE,
+            BROWN: cast FlxColor.BROWN,
+            PINK: cast FlxColor.PINK,
+            MAGENTA: cast FlxColor.MAGENTA,
+            CYAN: cast FlxColor.CYAN,
+
+            fromInt: function(value:Int):Int
+            {
+                return cast FlxColor.fromInt(value);
+            },
+
+            fromRGB: function(
+                red:Int,
+                green:Int,
+                blue:Int,
+                ?alpha:Int = 255
+            ):Int
+            {
+                return cast FlxColor.fromRGB(
+                    red,
+                    green,
+                    blue,
+                    alpha
+                );
+            },
+
+            fromRGBFloat: function(
+                red:Float,
+                green:Float,
+                blue:Float,
+                ?alpha:Float = 1
+            ):Int
+            {
+                return cast FlxColor.fromRGBFloat(
+                    red,
+                    green,
+                    blue,
+                    alpha
+                );
+            },
+
+            fromCMYK: function(
+                cyan:Float,
+                magenta:Float,
+                yellow:Float,
+                black:Float,
+                ?alpha:Float = 1
+            ):Int
+            {
+                return cast FlxColor.fromCMYK(
+                    cyan,
+                    magenta,
+                    yellow,
+                    black,
+                    alpha
+                );
+            },
+
+            fromHSB: function(
+                hue:Float,
+                saturation:Float,
+                brightness:Float,
+                ?alpha:Float = 1
+            ):Int
+            {
+                return cast FlxColor.fromHSB(
+                    hue,
+                    saturation,
+                    brightness,
+                    alpha
+                );
+            },
+
+            fromHSL: function(
+                hue:Float,
+                saturation:Float,
+                lightness:Float,
+                ?alpha:Float = 1
+            ):Int
+            {
+                return cast FlxColor.fromHSL(
+                    hue,
+                    saturation,
+                    lightness,
+                    alpha
+                );
+            },
+
+            fromString: function(value:String):Int
+            {
+                return cast PsychLuaManager.colorFromString(value);
+            },
+
+            interpolate: function(
+                color1:Int,
+                color2:Int,
+                ?factor:Float = 0.5
+            ):Int
+            {
+                return cast FlxColor.interpolate(
+                    color1,
+                    color2,
+                    factor
+                );
+            }
+        };
+    }
+
     static function configureInterp(interp:Interp, path:String, logical:String):Void
     {
         var variables = interp.variables;
@@ -207,7 +338,7 @@ class PsychHScriptManager
         variables.set('FlxText', FlxText);
         variables.set('FlxTween', FlxTween);
         variables.set('FlxEase', FlxEase);
-        variables.set('FlxColor', FlxColor);
+        variables.set('FlxColor', createFlxColorAPI());
         variables.set('Conductor', Conductor);
         variables.set('Paths', Paths);
         variables.set('PlayState', PlayState);
